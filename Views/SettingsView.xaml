@@ -1,0 +1,113 @@
+<UserControl x:Class="DoodleDrive.Views.SettingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+             xmlns:h="clr-namespace:DoodleDrive.Helpers"
+             xmlns:vm="clr-namespace:DoodleDrive.ViewModels"
+             mc:Ignorable="d"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             d:DataContext="{d:DesignInstance vm:SettingsViewModel}"
+             d:DesignHeight="600" d:DesignWidth="800">
+    <Grid Margin="20,16,20,16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,12">
+            <TextBlock Text="Paramètres" FontSize="24" FontWeight="Bold" />
+            <TextBlock Text="Connexions et apparence" Opacity="0.65" />
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel MaxWidth="720" HorizontalAlignment="Left">
+
+                <!-- Apparence -->
+                <Border CornerRadius="10" Padding="18" Margin="0,0,0,14"
+                        Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                    <StackPanel>
+                        <TextBlock Text="Apparence" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,12" />
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="16" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="Thème" Margin="0,0,0,4" />
+                                <ComboBox ItemsSource="{Binding ThemeOptions}"
+                                          SelectedItem="{Binding Theme, Mode=TwoWay}" MinHeight="36" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Text="Vue par défaut" Margin="0,0,0,4" />
+                                <ComboBox ItemsSource="{Binding ViewOptions}"
+                                          SelectedItem="{Binding DefaultView, Mode=TwoWay}" MinHeight="36" />
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- MariaDB -->
+                <Border CornerRadius="10" Padding="18" Margin="0,0,0,14"
+                        Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                        Visibility="{Binding IsAdmin, Converter={StaticResource BoolToVis}}">
+                    <StackPanel>
+                        <Grid Margin="0,0,0,12">
+                            <TextBlock Text="Base MariaDB" FontSize="16" FontWeight="SemiBold" />
+                            <ui:Button HorizontalAlignment="Right" Appearance="Secondary" Content="Tester"
+                                       Command="{Binding TestDbCommand}" />
+                        </Grid>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="2*" />
+                                <ColumnDefinition Width="10" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <ui:TextBox Grid.Column="0" Text="{Binding DbHost}" PlaceholderText="Hôte" />
+                            <ui:TextBox Grid.Column="2" Text="{Binding DbPort}" PlaceholderText="Port" />
+                        </Grid>
+                        <ui:TextBox Text="{Binding DbName}" PlaceholderText="Base de données" Margin="0,8,0,0" />
+                        <ui:TextBox Text="{Binding DbUser}" PlaceholderText="Utilisateur SQL" Margin="0,8,0,0" />
+                        <PasswordBox h:PasswordHelper.BindPassword="True"
+                                     h:PasswordHelper.BoundPassword="{Binding DbPassword, Mode=TwoWay}"
+                                     MinHeight="38" Margin="0,8,0,0" />
+                    </StackPanel>
+                </Border>
+
+                <!-- FTP -->
+                <Border CornerRadius="10" Padding="18" Margin="0,0,0,14"
+                        Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                        Visibility="{Binding IsAdmin, Converter={StaticResource BoolToVis}}">
+                    <StackPanel>
+                        <Grid Margin="0,0,0,12">
+                            <TextBlock Text="Serveur FTP (disque dur)" FontSize="16" FontWeight="SemiBold" />
+                            <ui:Button HorizontalAlignment="Right" Appearance="Secondary" Content="Tester"
+                                       Command="{Binding TestFtpCommand}" />
+                        </Grid>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="2*" />
+                                <ColumnDefinition Width="10" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <ui:TextBox Grid.Column="0" Text="{Binding FtpHost}" PlaceholderText="Hôte FTP" />
+                            <ui:TextBox Grid.Column="2" Text="{Binding FtpPort}" PlaceholderText="Port" />
+                        </Grid>
+                        <ui:TextBox Text="{Binding FtpUser}" PlaceholderText="Utilisateur FTP" Margin="0,8,0,0" />
+                        <PasswordBox h:PasswordHelper.BindPassword="True"
+                                     h:PasswordHelper.BoundPassword="{Binding FtpPassword, Mode=TwoWay}"
+                                     MinHeight="38" Margin="0,8,0,0" />
+                        <ui:TextBox Text="{Binding FtpRootPath}" PlaceholderText="Dossier racine (ex : /Disque dur)" Margin="0,8,0,0" />
+                        <CheckBox Content="Utiliser FTPS (TLS explicite)" IsChecked="{Binding FtpUseTls}" Margin="0,10,0,0" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <ui:Button Content="Enregistrer" Appearance="Primary" MinWidth="120" Command="{Binding SaveCommand}" />
+        </StackPanel>
+    </Grid>
+</UserControl>

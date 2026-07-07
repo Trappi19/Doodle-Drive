@@ -1,0 +1,116 @@
+<ui:FluentWindow x:Class="DoodleDrive.Views.Dialogs.PermissionsDialog"
+                 xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                 xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+                 xmlns:vm="clr-namespace:DoodleDrive.ViewModels"
+                 mc:Ignorable="d"
+                 xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+                 xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+                 d:DataContext="{d:DesignInstance vm:PermissionsDialogViewModel}"
+                 Title="Gérer les accès"
+                 Width="520" Height="560"
+                 MinWidth="460" MinHeight="440"
+                 WindowStartupLocation="CenterOwner"
+                 ExtendsContentIntoTitleBar="True"
+                 WindowBackdropType="Mica"
+                 WindowCornerPreference="Round">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <ui:TitleBar Grid.Row="0" Title="Gérer les accès" ShowMaximize="False" ShowMinimize="False" />
+
+        <StackPanel Grid.Row="1" Margin="24,10,24,4">
+            <TextBlock Text="Partage du dossier" Opacity="0.6" FontSize="12" />
+            <TextBlock Text="{Binding FolderName}" FontSize="20" FontWeight="SemiBold" />
+            <TextBlock Text="{Binding FolderPath}" Opacity="0.55" FontSize="12" TextTrimming="CharacterEllipsis" />
+        </StackPanel>
+
+        <!-- Ajout d'un accès -->
+        <Border Grid.Row="2" Margin="24,10,24,6" Padding="12" CornerRadius="10"
+                Background="{DynamicResource CardBackgroundFillColorSecondaryBrush}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <ComboBox Grid.Column="0" ItemsSource="{Binding AddableUsers}"
+                          SelectedItem="{Binding SelectedUserToAdd, Mode=TwoWay}"
+                          DisplayMemberPath="Username" MinHeight="36"
+                          Text="Choisir un utilisateur…" />
+                <ComboBox Grid.Column="1" ItemsSource="{Binding Levels}"
+                          SelectedItem="{Binding SelectedLevelToAdd, Mode=TwoWay}"
+                          MinHeight="36" Width="110" Margin="8,0" />
+                <ui:Button Grid.Column="2" Content="Ajouter" Appearance="Primary"
+                           Command="{Binding AddCommand}" MinHeight="36" />
+            </Grid>
+        </Border>
+
+        <!-- Liste des accès -->
+        <Border Grid.Row="3" Margin="24,6,24,6" CornerRadius="10"
+                Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+            <Grid>
+                <ItemsControl ItemsSource="{Binding Permissions}" Margin="6">
+                    <ItemsControl.Template>
+                        <ControlTemplate TargetType="ItemsControl">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <ItemsPresenter />
+                            </ScrollViewer>
+                        </ControlTemplate>
+                    </ItemsControl.Template>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="{x:Type vm:PermissionRow}">
+                            <Border Padding="10,8" Margin="4" CornerRadius="8"
+                                    Background="{DynamicResource CardBackgroundFillColorSecondaryBrush}">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <Border Grid.Column="0" Width="34" Height="34" CornerRadius="17"
+                                            Background="{DynamicResource AccentFillColorDefaultBrush}">
+                                        <TextBlock Text="{Binding Username}" Foreground="White" FontWeight="Bold"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    </Border>
+                                    <StackPanel Grid.Column="1" Margin="10,0" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Username}" FontWeight="SemiBold" />
+                                        <TextBlock Text="{Binding LevelLabel}" FontSize="11" Opacity="0.65" />
+                                    </StackPanel>
+                                    <ui:Button Grid.Column="2" Appearance="Secondary" Margin="0,0,6,0"
+                                               ToolTip="Basculer lecture / écriture"
+                                               Command="{Binding DataContext.SetLevelCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                               CommandParameter="{Binding}">
+                                        <TextBlock Style="{StaticResource GlyphText}" Text="&#xE70F;" FontSize="13" />
+                                    </ui:Button>
+                                    <ui:Button Grid.Column="3" Appearance="Secondary" ToolTip="Retirer l'accès"
+                                               Command="{Binding DataContext.RemoveCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                               CommandParameter="{Binding}">
+                                        <TextBlock Style="{StaticResource GlyphText}" Text="&#xE74D;" FontSize="13" />
+                                    </ui:Button>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center"
+                            Visibility="{Binding Permissions.Count, Converter={StaticResource CountToVis}, ConverterParameter=invert}">
+                    <TextBlock Style="{StaticResource GlyphText}" Text="&#xE71E;" FontSize="40" Opacity="0.25" HorizontalAlignment="Center" />
+                    <TextBlock Text="Ce dossier n'est partagé avec personne" Opacity="0.5" Margin="0,8,0,0" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="24,6,24,18">
+            <ui:Button Content="Fermer" Appearance="Primary" IsCancel="True" MinWidth="96" Click="Close_OnClick" />
+        </StackPanel>
+    </Grid>
+</ui:FluentWindow>

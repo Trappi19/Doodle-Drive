@@ -1,0 +1,139 @@
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using DoodleDrive.Services;
+using Wpf.Ui.Appearance;
+
+namespace DoodleDrive.ViewModels;
+
+/// <summary>Paramètres : connexions MariaDB/FTP, thème, vue par défaut.</summary>
+public sealed partial class SettingsViewModel : ObservableObject
+{
+    private readonly AppConfigService _configService;
+    private readonly DatabaseService _db;
+    private readonly FtpService _ftp;
+    private readonly NotificationService _notify;
+    private readonly Session _session;
+
+    public SettingsViewModel(AppConfigService configService, DatabaseService db, FtpService ftp,
+        NotificationService notify, Session session)
+    {
+        _configService = configService;
+        _db = db;
+        _ftp = ftp;
+        _notify = notify;
+        _session = session;
+
+        var c = configService.Current;
+        _dbHost = c.DbHost; _dbPort = c.DbPort; _dbName = c.DbName; _dbUser = c.DbUser; _dbPassword = c.DbPassword;
+        _ftpHost = c.FtpHost; _ftpPort = c.FtpPort; _ftpUser = c.FtpUser; _ftpPassword = c.FtpPassword;
+        _ftpRootPath = c.FtpRootPath; _ftpUseTls = c.FtpUseTls;
+        _theme = c.Theme; _defaultView = c.DefaultView;
+
+        SaveCommand = new RelayCommand(Save);
+        TestDbCommand = new AsyncRelayCommand(TestDbAsync, () => !IsBusy);
+        TestFtpCommand = new AsyncRelayCommand(TestFtpAsync, () => !IsBusy);
+    }
+
+    public RelayCommand SaveCommand { get; }
+    public AsyncRelayCommand TestDbCommand { get; }
+    public AsyncRelayCommand TestFtpCommand { get; }
+
+    /// <summary>Seul un admin peut voir/modifier la connexion serveur (les users ne choisissent pas leur point d'entrée).</summary>
+    public bool IsAdmin => _session.IsAdmin;
+
+    public IReadOnlyList<string> ThemeOptions { get; } = new[] { "System", "Light", "Dark" };
+    public IReadOnlyList<string> ViewOptions { get; } = new[] { "Grid", "List" };
+
+    [ObservableProperty] private string _dbHost;
+    [ObservableProperty] private int _dbPort;
+    [ObservableProperty] private string _dbName;
+    [ObservableProperty] private string _dbUser;
+    [ObservableProperty] private string _dbPassword;
+    [ObservableProperty] private string _ftpHost;
+    [ObservableProperty] private int _ftpPort;
+    [ObservableProperty] private string _ftpUser;
+    [ObservableProperty] private string _ftpPassword;
+    [ObservableProperty] private string _ftpRootPath;
+    [ObservableProperty] private bool _ftpUseTls;
+    [ObservableProperty] private string _defaultView;
+    [ObservableProperty] private bool _isBusy;
+
+    [ObservableProperty] private string _theme;
+
+    partial void OnIsBusyChanged(bool value)
+    {
+        TestDbCommand.NotifyCanExecuteChanged();
+        TestFtpCommand.NotifyCanExecuteChanged();
+    }
+
+    partial void OnThemeChanged(string value) => ApplyTheme(value);
+
+    public static void ApplyTheme(string theme)
+    {
+        switch (theme)
+        {
+            case "Light":
+                ApplicationThemeManager.Apply(ApplicationTheme.Light);
+                break;
+            case "Dark":
+                ApplicationThemeManager.Apply(ApplicationTheme.Dark);
+                break;
+            default:
+                ApplicationThemeManager.ApplySystemTheme();
+                break;
+        }
+    }
+
+    private void Save()
+    {
+        var c = _configService.Current;
+        c.DbHost = DbHost.Trim(); c.DbPort = DbPort; c.DbName = DbName.Trim();
+        c.DbUser = DbUser.Trim(); c.DbPassword = DbPassword;
+        c.FtpHost = FtpHost.Trim(); c.FtpPort = FtpPort; c.FtpUser = FtpUser.Trim();
+        c.FtpPassword = FtpPassword; c.FtpRootPath = FtpPathUtil.Normalize(FtpRootPath);
+        c.FtpUseTls = FtpUseTls;
+        c.Theme = Theme; c.DefaultView = DefaultView;
+        _configService.Save(c);
+        _notify.Success("Paramètres enregistrés");
+    }
+
+    private async Task TestDbAsync()
+    {
+        IsBusy = true;
+        try
+        {
+            Save();
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            await _db.TestConnectionAsync(cts.Token);
+            _notify.Success("MariaDB", "Connexion réussie.");
+        }
+        catch (Exception ex)
+        {
+            _notify.Error("MariaDB injoignable", ex.Message);
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private async Task TestFtpAsync()
+    {
+        IsBusy = true;
+        try
+        {
+            Save();
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            await _ftp.TestConnectionAsync(cts.Token);
+            _notify.Success("FTP", "Connexion réussie.");
+        }
+        catch (Exception ex)
+        {
+            _notify.Error("FTP injoignable", ex.Message);
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+}

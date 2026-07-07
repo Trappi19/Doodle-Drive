@@ -1,0 +1,66 @@
+<Application x:Class="DoodleDrive.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+             xmlns:conv="clr-namespace:DoodleDrive.Converters"
+             xmlns:vm="clr-namespace:DoodleDrive.ViewModels"
+             xmlns:views="clr-namespace:DoodleDrive.Views">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ui:ThemesDictionary Theme="Dark" />
+                <ui:ControlsDictionary />
+            </ResourceDictionary.MergedDictionaries>
+
+            <!-- ==================== Convertisseurs ==================== -->
+            <conv:InverseBoolConverter x:Key="InverseBool" />
+            <conv:BoolToVisibilityConverter x:Key="BoolToVis" />
+            <conv:InverseBoolToVisibilityConverter x:Key="InverseBoolToVis" />
+            <conv:NullToVisibilityConverter x:Key="NullToVis" />
+            <conv:StringToVisibilityConverter x:Key="StringToVis" />
+            <conv:CountToVisibilityConverter x:Key="CountToVis" />
+            <conv:ResourceKeyToBrushConverter x:Key="KeyToBrush" />
+
+            <!-- ==================== Couleurs par type de fichier ==================== -->
+            <SolidColorBrush x:Key="KindFolderBrush" Color="#FFCA28" />
+            <SolidColorBrush x:Key="KindImageBrush" Color="#26A69A" />
+            <SolidColorBrush x:Key="KindVideoBrush" Color="#EC407A" />
+            <SolidColorBrush x:Key="KindAudioBrush" Color="#7E57C2" />
+            <SolidColorBrush x:Key="KindPdfBrush" Color="#EF5350" />
+            <SolidColorBrush x:Key="KindDocumentBrush" Color="#42A5F5" />
+            <SolidColorBrush x:Key="KindSpreadsheetBrush" Color="#66BB6A" />
+            <SolidColorBrush x:Key="KindPresentationBrush" Color="#FF7043" />
+            <SolidColorBrush x:Key="KindArchiveBrush" Color="#8D6E63" />
+            <SolidColorBrush x:Key="KindCodeBrush" Color="#5C6BC0" />
+            <SolidColorBrush x:Key="KindDefaultBrush" Color="#90A4AE" />
+
+            <!-- ==================== Couleurs des toasts ==================== -->
+            <SolidColorBrush x:Key="ToastInfoBrush" Color="#42A5F5" />
+            <SolidColorBrush x:Key="ToastSuccessBrush" Color="#66BB6A" />
+            <SolidColorBrush x:Key="ToastWarningBrush" Color="#FFA726" />
+            <SolidColorBrush x:Key="ToastErrorBrush" Color="#EF5350" />
+
+            <!-- Police d'icônes Fluent (présente sur Windows 11, repli MDL2). -->
+            <FontFamily x:Key="IconFont">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
+
+            <!-- ==================== Mapping ViewModel -> Vue ==================== -->
+            <DataTemplate DataType="{x:Type vm:FilesViewModel}">
+                <views:FilesView />
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:AdminViewModel}">
+                <views:AdminView />
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:SettingsViewModel}">
+                <views:SettingsView />
+            </DataTemplate>
+
+            <!-- Style glyphe icône réutilisable -->
+            <Style x:Key="GlyphText" TargetType="TextBlock">
+                <Setter Property="FontFamily" Value="{StaticResource IconFont}" />
+                <Setter Property="HorizontalAlignment" Value="Center" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+                <Setter Property="TextOptions.TextFormattingMode" Value="Ideal" />
+            </Style>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

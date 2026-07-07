@@ -8,6 +8,7 @@
     <UseWPF>true</UseWPF>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <ApplicationIcon>assets\icon.ico</ApplicationIcon>
     <Version>1.0.0</Version>
     <Company>Doodle Drive</Company>
     <Product>Doodle Drive</Product>
@@ -20,6 +21,11 @@
     <PackageReference Include="MySqlConnector" Version="2.4.0" />
     <PackageReference Include="Dapper" Version="2.1.66" />
     <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
+  </ItemGroup>
+
+  <!-- Icône de l'application (exe + fenêtres via pack URI). -->
+  <ItemGroup>
+    <Resource Include="assets\icon.ico" />
   </ItemGroup>
 
   <!-- Copie le .env (identifiants privés) à côté de l'exécutable s'il existe. -->

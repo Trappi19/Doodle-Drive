@@ -14,7 +14,8 @@
                  WindowStartupLocation="CenterScreen"
                  ExtendsContentIntoTitleBar="True"
                  WindowBackdropType="Mica"
-                 WindowCornerPreference="Round">
+                 WindowCornerPreference="Round"
+                 Icon="pack://application:,,,/assets/icon.ico">
 
     <Grid>
         <Grid.RowDefinitions>
@@ -22,18 +23,22 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <ui:TitleBar Grid.Row="0" Title="Doodle Drive" ShowMaximize="False" />
+        <ui:TitleBar Grid.Row="0" Title="Doodle Drive" ShowMaximize="False">
+            <ui:TitleBar.Icon>
+                <ui:ImageIcon Source="pack://application:,,,/assets/icon.ico" Width="18" Height="18" />
+            </ui:TitleBar.Icon>
+        </ui:TitleBar>
 
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="36,8,36,28">
             <StackPanel MaxWidth="380" VerticalAlignment="Center">
 
-                <Border Width="76" Height="76" CornerRadius="20" Margin="0,8,0,16"
-                        Background="{DynamicResource AccentFillColorDefaultBrush}">
-                    <Border.Effect>
-                        <DropShadowEffect BlurRadius="24" ShadowDepth="0" Opacity="0.35" Color="#4F46E5" />
-                    </Border.Effect>
-                    <TextBlock Style="{StaticResource GlyphText}" Text="&#xE753;" FontSize="38" Foreground="White" />
-                </Border>
+                <Image Source="pack://application:,,,/assets/icon.ico"
+                       Width="88" Height="88" Margin="0,8,0,16"
+                       RenderOptions.BitmapScalingMode="HighQuality">
+                    <Image.Effect>
+                        <DropShadowEffect BlurRadius="24" ShadowDepth="0" Opacity="0.3" />
+                    </Image.Effect>
+                </Image>
 
                 <TextBlock Text="Doodle Drive" FontSize="28" FontWeight="Bold" HorizontalAlignment="Center" />
                 <TextBlock Text="Votre drive personnel sur la Freebox"

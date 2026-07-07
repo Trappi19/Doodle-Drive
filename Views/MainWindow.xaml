@@ -14,7 +14,8 @@
                  WindowStartupLocation="CenterScreen"
                  ExtendsContentIntoTitleBar="True"
                  WindowBackdropType="Mica"
-                 WindowCornerPreference="Round">
+                 WindowCornerPreference="Round"
+                 Icon="pack://application:,,,/assets/icon.ico">
 
     <ui:FluentWindow.Resources>
         <Style x:Key="NavButton" TargetType="Button">
@@ -52,7 +53,11 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <ui:TitleBar Grid.Row="0" Title="Doodle Drive" />
+        <ui:TitleBar Grid.Row="0" Title="Doodle Drive">
+            <ui:TitleBar.Icon>
+                <ui:ImageIcon Source="pack://application:,,,/assets/icon.ico" Width="18" Height="18" />
+            </ui:TitleBar.Icon>
+        </ui:TitleBar>
 
         <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>

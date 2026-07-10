@@ -27,6 +27,7 @@ public sealed partial class LoginViewModel : ObservableObject
 
         var c = configService.Current;
         _username = c.RememberMe ? c.RememberedUsername : string.Empty;
+        _passwordInput = c.RememberMe ? c.RememberedPassword : string.Empty;
         _rememberMe = c.RememberMe;
 
         _dbHost = c.DbHost; _dbPort = c.DbPort; _dbName = c.DbName; _dbUser = c.DbUser; _dbPassword = c.DbPassword;
@@ -83,6 +84,10 @@ public sealed partial class LoginViewModel : ObservableObject
     [ObservableProperty] private bool _ftpUseTls;
 
     public bool HasStatus => !string.IsNullOrEmpty(StatusMessage);
+
+    /// <summary>Vrai si un identifiant + mot de passe mémorisés permettent une connexion automatique.</summary>
+    public bool CanAutoLogin =>
+        RememberMe && !string.IsNullOrWhiteSpace(Username) && !string.IsNullOrEmpty(PasswordInput);
 
     partial void OnIsBusyChanged(bool value)
     {
@@ -153,6 +158,47 @@ public sealed partial class LoginViewModel : ObservableObject
         StatusMessage = message;
     }
 
+    /// <summary>
+    /// Importe les paramètres serveur depuis un fichier (<c>.ddconfig</c> chiffré ou <c>.env</c>
+    /// en clair), remplit les champs et enregistre la config (chiffrée DPAPI au repos).
+    /// </summary>
+    public void ImportFromFile(string path)
+    {
+        try
+        {
+            var env = PortableConfig.LoadFile(path);
+            if (env.Count == 0)
+            {
+                SetStatus("Fichier de configuration illisible ou vide.", true);
+                return;
+            }
+
+            string? Get(string key) =>
+                env.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v) ? v : null;
+
+            if (Get("DOODLE_DB_HOST") is { } dbHost) DbHost = dbHost;
+            if (Get("DOODLE_DB_PORT") is { } dbPort && int.TryParse(dbPort, out var dbPortValue)) DbPort = dbPortValue;
+            if (Get("DOODLE_DB_NAME") is { } dbName) DbName = dbName;
+            if (Get("DOODLE_DB_USER") is { } dbUser) DbUser = dbUser;
+            if (Get("DOODLE_DB_PASSWORD") is { } dbPassword) DbPassword = dbPassword;
+            if (Get("DOODLE_FTP_HOST") is { } ftpHost) FtpHost = ftpHost;
+            if (Get("DOODLE_FTP_PORT") is { } ftpPort && int.TryParse(ftpPort, out var ftpPortValue)) FtpPort = ftpPortValue;
+            if (Get("DOODLE_FTP_USER") is { } ftpUser) FtpUser = ftpUser;
+            if (Get("DOODLE_FTP_PASSWORD") is { } ftpPassword) FtpPassword = ftpPassword;
+            if (Get("DOODLE_FTP_ROOT") is { } ftpRoot) FtpRootPath = ftpRoot;
+            if (Get("DOODLE_FTP_TLS") is { } ftpTls)
+                FtpUseTls = ftpTls.Trim().ToLowerInvariant() is "1" or "true" or "yes" or "oui" or "on";
+
+            // Enregistre les nouveaux paramètres (persistés et chiffrés dans config.json).
+            ApplyConfig();
+            SetStatus("Configuration serveur importée. Vous pouvez vous connecter.", false);
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"Import impossible : {ex.Message}", true);
+        }
+    }
+
     private async Task TestConnectionAsync()
     {
         IsBusy = true;
@@ -196,6 +242,7 @@ public sealed partial class LoginViewModel : ObservableObject
             var c = _configService.Current;
             c.RememberMe = RememberMe;
             c.RememberedUsername = RememberMe ? result.User.Username : string.Empty;
+            c.RememberedPassword = RememberMe ? PasswordInput : string.Empty;
             _configService.Save(c);
 
             LoginSucceeded?.Invoke();

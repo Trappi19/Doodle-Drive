@@ -1,4 +1,6 @@
 using System.IO;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using DoodleDrive.Models;
 
@@ -33,6 +35,11 @@ public sealed class AppConfigService
             {
                 var json = File.ReadAllText(_filePath);
                 config = JsonSerializer.Deserialize<AppConfig>(json) ?? new AppConfig();
+                // Déchiffre les mots de passe stockés (rétrocompatible : un ancien
+                // config.json en clair est accepté tel quel et re-chiffré au prochain Save).
+                config.DbPassword = Unprotect(config.DbPassword);
+                config.FtpPassword = Unprotect(config.FtpPassword);
+                config.RememberedPassword = Unprotect(config.RememberedPassword);
             }
         }
         catch
@@ -81,7 +88,12 @@ public sealed class AppConfigService
         try
         {
             Directory.CreateDirectory(_directory);
-            File.WriteAllText(_filePath, JsonSerializer.Serialize(config, JsonOptions));
+            // Chiffre les mots de passe avant écriture, sans altérer l'objet en mémoire.
+            var toStore = config.Clone();
+            toStore.DbPassword = Protect(config.DbPassword);
+            toStore.FtpPassword = Protect(config.FtpPassword);
+            toStore.RememberedPassword = Protect(config.RememberedPassword);
+            File.WriteAllText(_filePath, JsonSerializer.Serialize(toStore, JsonOptions));
         }
         catch
         {
@@ -90,4 +102,45 @@ public sealed class AppConfigService
     }
 
     public void Save() => Save(Current);
+
+    // ----- Chiffrement local des identifiants (Windows DPAPI, portée utilisateur) -----
+    // Les mots de passe sont chiffrés au repos dans config.json et liés au compte
+    // Windows courant : copier le fichier sur une autre machine/compte le rend illisible.
+
+    private const string EncPrefix = "enc:";
+
+    /// <summary>Chiffre une valeur via DPAPI. Renvoie la valeur inchangée si vide ou déjà chiffrée.</summary>
+    private static string Protect(string plain)
+    {
+        if (string.IsNullOrEmpty(plain) || plain.StartsWith(EncPrefix, StringComparison.Ordinal))
+            return plain;
+        try
+        {
+            var bytes = ProtectedData.Protect(Encoding.UTF8.GetBytes(plain), null, DataProtectionScope.CurrentUser);
+            return EncPrefix + Convert.ToBase64String(bytes);
+        }
+        catch
+        {
+            // DPAPI indisponible : on conserve la valeur en clair plutôt que de la perdre.
+            return plain;
+        }
+    }
+
+    /// <summary>Déchiffre une valeur DPAPI. Une valeur sans préfixe (ancien format en clair) est renvoyée telle quelle.</summary>
+    private static string Unprotect(string stored)
+    {
+        if (string.IsNullOrEmpty(stored) || !stored.StartsWith(EncPrefix, StringComparison.Ordinal))
+            return stored;
+        try
+        {
+            var bytes = ProtectedData.Unprotect(
+                Convert.FromBase64String(stored[EncPrefix.Length..]), null, DataProtectionScope.CurrentUser);
+            return Encoding.UTF8.GetString(bytes);
+        }
+        catch
+        {
+            // Chiffré pour un autre compte/machine : illisible ici, on repart à vide.
+            return string.Empty;
+        }
+    }
 }

@@ -106,6 +106,19 @@
                         <CheckBox Content="Utiliser FTPS (TLS explicite)" IsChecked="{Binding FtpUseTls}" Margin="0,10,0,0" />
                     </StackPanel>
                 </Border>
+
+                <!-- Déploiement (admin) -->
+                <Border CornerRadius="10" Padding="18" Margin="0,0,0,14"
+                        Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                        Visibility="{Binding IsAdmin, Converter={StaticResource BoolToVis}}">
+                    <StackPanel>
+                        <TextBlock Text="Déploiement" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,6" />
+                        <TextBlock TextWrapping="Wrap" Opacity="0.7" FontSize="12" Margin="0,0,0,12"
+                                   Text="Exporte les paramètres serveur dans un fichier chiffré (.ddconfig). Importez-le sur une autre machine depuis l'écran de connexion (bouton « Importer » ou glisser-déposer) sans communiquer les identifiants." />
+                        <ui:Button Click="OnExportProfileClick" Appearance="Secondary"
+                                   HorizontalAlignment="Left" Content="Exporter mon profil…" />
+                    </StackPanel>
+                </Border>
             </StackPanel>
         </ScrollViewer>
 

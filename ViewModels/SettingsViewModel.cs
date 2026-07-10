@@ -1,3 +1,4 @@
+using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using DoodleDrive.Services;
@@ -113,6 +114,28 @@ public sealed partial class SettingsViewModel : ObservableObject
         c.Theme = Theme; c.DefaultView = DefaultView;
         _configService.Save(c);
         _notify.Success("Paramètres enregistrés");
+    }
+
+    /// <summary>
+    /// Exporte les paramètres serveur courants vers un fichier <c>.ddconfig</c> chiffré,
+    /// à importer sur les autres machines. Réservé aux administrateurs.
+    /// </summary>
+    public void ExportProfile(string path)
+    {
+        if (!IsAdmin) return;
+        try
+        {
+            // Enregistre d'abord d'éventuelles modifications en cours, puis exporte.
+            Save();
+            var c = _configService.Current;
+            File.WriteAllBytes(path, PortableConfig.Encrypt(PortableConfig.BuildEnvText(c)));
+            _notify.Success("Profil exporté",
+                "Fichier chiffré prêt à importer sur une autre machine (écran de connexion).");
+        }
+        catch (Exception ex)
+        {
+            _notify.Error("Export impossible", ex.Message);
+        }
     }
 
     private async Task TestDbAsync()

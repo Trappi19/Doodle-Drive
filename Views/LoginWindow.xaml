@@ -53,7 +53,7 @@
                              h:PasswordHelper.BoundPassword="{Binding PasswordInput, Mode=TwoWay}"
                              MinHeight="38" />
 
-                <CheckBox Content="Se souvenir de mon identifiant"
+                <CheckBox Content="Rester connecté"
                           IsChecked="{Binding RememberMe}" Margin="0,14,0,0" />
 
                 <ui:Button Command="{Binding LoginCommand}" IsDefault="True"
@@ -82,6 +82,13 @@
                         </TextBlock.Style>
                     </TextBlock>
                 </Border>
+
+                <ui:Button Click="OnImportClick" Appearance="Secondary"
+                           HorizontalAlignment="Stretch" Margin="0,16,0,0"
+                           Content="Importer une configuration…" />
+                <TextBlock Text="…ou glissez un fichier .ddconfig / .env sur la fenêtre"
+                           Opacity="0.6" FontSize="11" HorizontalAlignment="Center"
+                           Margin="0,6,0,0" TextWrapping="Wrap" />
 
                 <Expander Header="Paramètres serveur (MariaDB &amp; FTP)"
                           IsExpanded="{Binding IsServerPanelOpen}" Margin="0,22,0,0">

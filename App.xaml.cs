@@ -1,3 +1,4 @@
+using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
 using DoodleDrive.Services;
@@ -8,6 +9,14 @@ namespace DoodleDrive;
 
 public partial class App : Application
 {
+    // Instance unique (par session utilisateur). Le mutex détecte une instance déjà
+    // lancée ; l'évènement sert à lui demander de ramener sa fenêtre au premier plan.
+    private const string SingleInstanceMutexName = @"Local\DoodleDrive.SingleInstance";
+    private const string ShowExistingEventName = @"Local\DoodleDrive.ShowExisting";
+
+    private Mutex? _instanceMutex;
+    private EventWaitHandle? _showExistingEvent;
+
     private AppServices _services = null!;
     private bool _returningToLogin;
     private TrayService? _tray;
@@ -28,17 +37,55 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        // Une seule instance : si l'app tourne déjà (visible ou en tâche de fond),
+        // on lui demande de s'afficher, puis cette 2ᵉ instance se ferme aussitôt.
+        _instanceMutex = new Mutex(initiallyOwned: true, SingleInstanceMutexName, out var isNewInstance);
+        if (!isNewInstance)
+        {
+            if (EventWaitHandle.TryOpenExisting(ShowExistingEventName, out var existing))
+            {
+                existing.Set();
+                existing.Dispose();
+            }
+            Shutdown();
+            return;
+        }
+
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
+
+        // Écoute les demandes d'affichage émises par une nouvelle tentative de lancement.
+        _showExistingEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ShowExistingEventName);
+        new Thread(ShowExistingListener) { IsBackground = true, Name = "SingleInstanceListener" }.Start();
 
         _services = new AppServices();
         SettingsViewModel.ApplyTheme(_services.Config.Current.Theme);
 
         DispatcherUnhandledException += OnUnhandledException;
 
-        ShowLogin();
+        ShowLogin(allowAutoLogin: true);
     }
 
-    private void ShowLogin()
+    /// <summary>Boucle de fond : ramène la fenêtre au premier plan quand une 2ᵉ instance le demande.</summary>
+    private void ShowExistingListener()
+    {
+        while (_showExistingEvent is not null && _showExistingEvent.WaitOne())
+            Dispatch(ActivateMainWindow);
+    }
+
+    /// <summary>Affiche et active la fenêtre courante (login ou fenêtre principale masquée dans le tray).</summary>
+    private void ActivateMainWindow()
+    {
+        if (MainWindow is not { } window) return;
+        if (!window.IsVisible) window.Show();
+        if (window.WindowState == WindowState.Minimized) window.WindowState = WindowState.Normal;
+        window.Activate();
+        // Bascule Topmost pour forcer le passage au premier plan de façon fiable.
+        window.Topmost = true;
+        window.Topmost = false;
+    }
+
+    private void ShowLogin(bool allowAutoLogin = false)
     {
         var vm = new LoginViewModel(_services.Config, _services.Auth, _services.Database,
             _services.Ftp, _services.Session, _services.Notifications);
@@ -59,6 +106,11 @@ public partial class App : Application
 
         MainWindow = window;
         window.Show();
+
+        // Connexion automatique si « Rester connecté » a mémorisé les identifiants.
+        // En cas d'échec (mot de passe changé, serveur injoignable), l'écran reste affiché.
+        if (allowAutoLogin && vm.CanAutoLogin)
+            _ = vm.LoginCommand.ExecuteAsync(null);
     }
 
     private void ShowShell()

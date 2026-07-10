@@ -29,6 +29,9 @@ public sealed class AppConfig
     public bool RememberMe { get; set; }
     public string RememberedUsername { get; set; } = string.Empty;
 
+    /// <summary>Mot de passe mémorisé pour la connexion automatique (chiffré DPAPI au repos).</summary>
+    public string RememberedPassword { get; set; } = string.Empty;
+
     // ----- Préférences UI -----
     /// <summary>"System", "Light" ou "Dark".</summary>
     public string Theme { get; set; } = "System";

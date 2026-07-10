@@ -15,36 +15,43 @@ public static class EnvFile
     public static IReadOnlyDictionary<string, string> Load()
     {
         var path = Locate();
-        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        if (path is null) return result;
+        if (path is null) return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         try
         {
-            foreach (var raw in File.ReadAllLines(path))
-            {
-                var line = raw.Trim();
-                if (line.Length == 0 || line.StartsWith('#')) continue;
-                if (line.StartsWith("export ", StringComparison.OrdinalIgnoreCase))
-                    line = line["export ".Length..].TrimStart();
-
-                var eq = line.IndexOf('=');
-                if (eq <= 0) continue;
-
-                var key = line[..eq].Trim();
-                var value = line[(eq + 1)..].Trim();
-
-                // Retire les guillemets englobants éventuels.
-                if (value.Length >= 2 &&
-                    ((value[0] == '"' && value[^1] == '"') || (value[0] == '\'' && value[^1] == '\'')))
-                    value = value[1..^1];
-
-                if (key.Length > 0)
-                    result[key] = value;
-            }
+            return Parse(File.ReadAllLines(path));
         }
         catch
         {
             // .env illisible : on l'ignore silencieusement.
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    /// <summary>Parse des lignes au format <c>KEY=VALUE</c> (commentaires <c>#</c> ignorés).</summary>
+    public static Dictionary<string, string> Parse(IEnumerable<string> lines)
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var raw in lines)
+        {
+            var line = raw.Trim();
+            if (line.Length == 0 || line.StartsWith('#')) continue;
+            if (line.StartsWith("export ", StringComparison.OrdinalIgnoreCase))
+                line = line["export ".Length..].TrimStart();
+
+            var eq = line.IndexOf('=');
+            if (eq <= 0) continue;
+
+            var key = line[..eq].Trim();
+            var value = line[(eq + 1)..].Trim();
+
+            // Retire les guillemets englobants éventuels.
+            if (value.Length >= 2 &&
+                ((value[0] == '"' && value[^1] == '"') || (value[0] == '\'' && value[^1] == '\'')))
+                value = value[1..^1];
+
+            if (key.Length > 0)
+                result[key] = value;
         }
 
         return result;

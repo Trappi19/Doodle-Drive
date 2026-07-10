@@ -236,7 +236,7 @@
                           Background="Transparent" BorderThickness="0" Padding="6"
                           SelectedItemChanged="FolderTreeView_OnSelectedItemChanged">
                     <TreeView.ItemContainerStyle>
-                        <Style TargetType="TreeViewItem">
+                        <Style TargetType="TreeViewItem" BasedOn="{StaticResource {x:Type TreeViewItem}}">
                             <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
                         </Style>
                     </TreeView.ItemContainerStyle>
@@ -253,7 +253,8 @@
                                 </StackPanel.ContextMenu>
                                 <TextBlock Style="{StaticResource GlyphText}" Text="{Binding Glyph}" FontSize="15"
                                            Foreground="{StaticResource KindFolderBrush}" Margin="0,0,8,0" />
-                                <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
+                                <TextBlock Text="{Binding Name}" VerticalAlignment="Center"
+                                           Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
                             </StackPanel>
                         </HierarchicalDataTemplate>
                     </TreeView.Resources>
@@ -299,7 +300,7 @@
                                   Background="Transparent" BorderThickness="0"
                                   Visibility="{Binding IsGridView, Converter={StaticResource InverseBoolToVis}}">
                             <ListView.ItemContainerStyle>
-                                <Style TargetType="ListViewItem">
+                                <Style TargetType="ListViewItem" BasedOn="{StaticResource ListViewItemStyle}">
                                     <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay}" />
                                     <Setter Property="Tag" Value="{Binding DataContext, RelativeSource={RelativeSource AncestorType=ListView}}" />
                                     <Setter Property="ContextMenu" Value="{StaticResource EntryContextMenu}" />
@@ -339,13 +340,19 @@
 
                         <!-- Overlay occupé -->
                         <Border Background="#40000000" Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}">
-                            <ui:ProgressRing IsIndeterminate="True" Width="46" Height="46" />
+                            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                                <ui:ProgressRing IsIndeterminate="True" Width="46" Height="46" HorizontalAlignment="Center" />
+                                <ui:Button Command="{Binding CancelOpenCommand}" Content="Annuler le chargement"
+                                           Appearance="Secondary" HorizontalAlignment="Center" Margin="0,16,0,0"
+                                           Visibility="{Binding IsLoadingContent, Converter={StaticResource BoolToVis}}" />
+                            </StackPanel>
                         </Border>
                     </Grid>
                 </Border>
 
+                <StackPanel Grid.Row="1">
                 <!-- ==================== Panneau d'envoi ==================== -->
-                <Border Grid.Row="1" Margin="0,10,0,0" CornerRadius="10" Padding="14,10"
+                <Border Margin="0,10,0,0" CornerRadius="10" Padding="14,10"
                         Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
                         BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="1"
                         Visibility="{Binding IsUploadPanelOpen, Converter={StaticResource BoolToVis}}">
@@ -385,6 +392,49 @@
                         </ItemsControl>
                     </StackPanel>
                 </Border>
+
+                <!-- ==================== Panneau de téléchargement ==================== -->
+                <Border Margin="0,10,0,0" CornerRadius="10" Padding="14,10"
+                        Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                        Visibility="{Binding IsDownloadPanelOpen, Converter={StaticResource BoolToVis}}">
+                    <StackPanel>
+                        <Grid>
+                            <TextBlock Text="File d'attente de téléchargement" FontWeight="SemiBold" />
+                            <ui:Button HorizontalAlignment="Right" Appearance="Transparent" Padding="4"
+                                       Command="{Binding SignalDownloadPanelCommand}">
+                                <TextBlock Style="{StaticResource GlyphText}" Text="&#xE711;" FontSize="12" />
+                            </ui:Button>
+                        </Grid>
+                        <ItemsControl ItemsSource="{Binding Downloads}" MaxHeight="160" Margin="0,6,0,0">
+                            <ItemsControl.Template>
+                                <ControlTemplate TargetType="ItemsControl">
+                                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                        <ItemsPresenter />
+                                    </ScrollViewer>
+                                </ControlTemplate>
+                            </ItemsControl.Template>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:DownloadItemViewModel}">
+                                    <Grid Margin="0,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" Margin="0,0,12,0">
+                                            <TextBlock Text="{Binding FileName}" TextTrimming="CharacterEllipsis" FontSize="12" />
+                                            <ProgressBar Height="4" Margin="0,3,0,0" Minimum="0" Maximum="100"
+                                                         Value="{Binding Progress}" IsIndeterminate="{Binding IsIndeterminate}" />
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="1" Text="{Binding StatusText}" FontSize="11"
+                                                   Opacity="0.7" VerticalAlignment="Center" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+                </StackPanel>
             </Grid>
         </Grid>
     </Grid>

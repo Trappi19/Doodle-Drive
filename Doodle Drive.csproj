@@ -11,7 +11,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <ApplicationIcon>assets\icon.ico</ApplicationIcon>
-    <Version>1.1.0</Version>
+    <Version>1.3.0</Version>
     <Company>Doodle Drive</Company>
     <Product>Doodle Drive</Product>
     <Authors>Sevan Quesnot</Authors>

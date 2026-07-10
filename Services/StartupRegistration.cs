@@ -8,6 +8,9 @@ public static class StartupRegistration
     private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private const string ValueName = "DoodleDrive";
 
+    /// <summary>Argument passé par le lancement automatique, pour distinguer d'un lancement manuel.</summary>
+    public const string StartupArgument = "--startup";
+
     public static bool IsEnabled()
     {
         try
@@ -28,7 +31,7 @@ public static class StartupRegistration
         {
             var exe = Environment.ProcessPath
                 ?? throw new InvalidOperationException("Chemin de l'exécutable introuvable.");
-            key.SetValue(ValueName, $"\"{exe}\"");
+            key.SetValue(ValueName, $"\"{exe}\" {StartupArgument}");
         }
         else
         {

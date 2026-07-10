@@ -47,14 +47,6 @@ public sealed class TrayService : IDisposable
 
     public void Show() => _icon.Visible = true;
 
-    /// <summary>Info-bulle affichée la première fois que la fenêtre part en tâche de fond.</summary>
-    public void ShowBackgroundHint()
-    {
-        _icon.BalloonTipTitle = "Doodle Drive";
-        _icon.BalloonTipText = "L'application continue en tâche de fond. Clic droit sur l'icône pour quitter.";
-        _icon.ShowBalloonTip(3000);
-    }
-
     public void Dispose()
     {
         _icon.Visible = false;

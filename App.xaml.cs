@@ -21,7 +21,10 @@ public partial class App : Application
     private bool _returningToLogin;
     private TrayService? _tray;
     private bool _exitRequested;
-    private bool _trayHintShown;
+
+    // Démarrage automatique avec Windows : l'app peut démarrer masquée (tâche de fond).
+    private bool _startedFromStartup;
+    private bool _startShellHidden;
 
     /// <summary>Exécute une action sur le thread UI (utilisé depuis les tâches de fond).</summary>
     public static void Dispatch(Action action) => Current?.Dispatcher.Invoke(action);
@@ -37,6 +40,8 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        _startedFromStartup = e.Args.Contains(StartupRegistration.StartupArgument);
 
         // Une seule instance : si l'app tourne déjà (visible ou en tâche de fond),
         // on lui demande de s'afficher, puis cette 2ᵉ instance se ferme aussitôt.
@@ -105,12 +110,34 @@ public partial class App : Application
         };
 
         MainWindow = window;
-        window.Show();
+
+        // Démarrage en tâche de fond (lancé par Windows, sans « ouvrir la fenêtre ») :
+        // si l'auto-login est possible, on n'affiche pas la fenêtre de connexion (pas de
+        // flash) et le shell démarrera masqué. Sinon on affiche l'écran normalement.
+        var background = allowAutoLogin && vm.CanAutoLogin
+                         && _startedFromStartup && !_services.Config.Current.OpenWindowOnStartup;
+        _startShellHidden = background;
+
+        if (!background)
+            window.Show();
 
         // Connexion automatique si « Rester connecté » a mémorisé les identifiants.
         // En cas d'échec (mot de passe changé, serveur injoignable), l'écran reste affiché.
         if (allowAutoLogin && vm.CanAutoLogin)
-            _ = vm.LoginCommand.ExecuteAsync(null);
+        {
+            var loginTask = vm.LoginCommand.ExecuteAsync(null);
+            if (background)
+                loginTask.ContinueWith(_ => Dispatch(() =>
+                {
+                    // Auto-login échoué : on quitte le mode masqué et on affiche le login.
+                    if (!authenticated)
+                    {
+                        _startShellHidden = false;
+                        window.Show();
+                        window.Activate();
+                    }
+                }), TaskScheduler.Default);
+        }
     }
 
     private void ShowShell()
@@ -147,11 +174,6 @@ public partial class App : Application
             if (_exitRequested || _returningToLogin) return;
             e.Cancel = true;
             window.Hide();
-            if (!_trayHintShown)
-            {
-                _trayHintShown = true;
-                _tray?.ShowBackgroundHint();
-            }
         };
 
         window.Closed += (_, _) =>
@@ -170,7 +192,14 @@ public partial class App : Application
         };
 
         MainWindow = window;
-        window.Show();
+
+        // Démarrage en tâche de fond : fenêtre masquée, seule l'icône du tray est visible.
+        var startHidden = _startShellHidden;
+        _startShellHidden = false;
+        _startedFromStartup = false; // ne concerne que le tout premier démarrage
+
+        if (!startHidden)
+            window.Show();
         _ = vm.StartAsync();
     }
 

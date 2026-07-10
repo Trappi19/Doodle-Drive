@@ -16,7 +16,8 @@ public sealed partial class ShellViewModel : ObservableObject
 
         Files = new FilesViewModel(services.Database, services.Ftp, services.Thumbnails,
             services.Dialogs, services.Notifications, services.Session, services.Config);
-        Settings = new SettingsViewModel(services.Config, services.Database, services.Ftp, services.Notifications, services.Session);
+        Settings = new SettingsViewModel(services.Config, services.Database, services.Ftp, services.Notifications, services.Session, services.Dialogs);
+        Settings.SignOutRequested += () => SignedOut?.Invoke();
         if (services.Session.IsAdmin)
             Admin = new AdminViewModel(services.Database, services.Dialogs, services.Notifications, services.Session);
 

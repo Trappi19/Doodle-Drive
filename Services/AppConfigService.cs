@@ -103,6 +103,22 @@ public sealed class AppConfigService
 
     public void Save() => Save(Current);
 
+    /// <summary>
+    /// Réinitialise les paramètres de connexion serveur (hôtes/ports par défaut, identifiants
+    /// vidés) tout en conservant les préférences (thème, vue, session mémorisée). La machine
+    /// se retrouve dans l'état « premier lancement » : re-saisie ou ré-import nécessaire.
+    /// </summary>
+    public void ResetServerConfig()
+    {
+        var c = Current;
+        var defaults = new AppConfig();
+        c.DbHost = defaults.DbHost; c.DbPort = defaults.DbPort; c.DbName = defaults.DbName;
+        c.DbUser = defaults.DbUser; c.DbPassword = defaults.DbPassword;
+        c.FtpHost = defaults.FtpHost; c.FtpPort = defaults.FtpPort; c.FtpUser = defaults.FtpUser;
+        c.FtpPassword = defaults.FtpPassword; c.FtpRootPath = defaults.FtpRootPath; c.FtpUseTls = defaults.FtpUseTls;
+        Save(c);
+    }
+
     // ----- Chiffrement local des identifiants (Windows DPAPI, portée utilisateur) -----
     // Les mots de passe sont chiffrés au repos dans config.json et liés au compte
     // Windows courant : copier le fichier sur une autre machine/compte le rend illisible.

@@ -41,5 +41,11 @@ public sealed class AppConfig
 
     public string? LastDownloadFolder { get; set; }
 
+    /// <summary>
+    /// Au lancement automatique avec Windows : ouvrir aussi la fenêtre. Si faux (défaut),
+    /// l'app démarre uniquement en tâche de fond (icône près de l'horloge).
+    /// </summary>
+    public bool OpenWindowOnStartup { get; set; }
+
     public AppConfig Clone() => (AppConfig)MemberwiseClone();
 }

@@ -43,6 +43,7 @@ public sealed partial class LoginViewModel : ObservableObject
         LoginCommand = new AsyncRelayCommand(LoginAsync, () => !IsBusy);
         TestConnectionCommand = new AsyncRelayCommand(TestConnectionAsync, () => !IsBusy);
         UnlockServerCommand = new AsyncRelayCommand(UnlockServerAsync, () => !IsBusy);
+        ResetServerCommand = new RelayCommand(ResetServer);
     }
 
     public event Action? LoginSucceeded;
@@ -50,6 +51,7 @@ public sealed partial class LoginViewModel : ObservableObject
     public AsyncRelayCommand LoginCommand { get; }
     public AsyncRelayCommand TestConnectionCommand { get; }
     public AsyncRelayCommand UnlockServerCommand { get; }
+    public RelayCommand ResetServerCommand { get; }
 
     [ObservableProperty] private string _username;
     [ObservableProperty] private string _passwordInput = string.Empty;
@@ -191,12 +193,40 @@ public sealed partial class LoginViewModel : ObservableObject
 
             // Enregistre les nouveaux paramètres (persistés et chiffrés dans config.json).
             ApplyConfig();
+
+            // Config désormais renseignée : on verrouille le panneau serveur comme une
+            // machine déjà configurée. Un utilisateur non-admin ne peut plus voir/modifier
+            // les identifiants (déverrouillage réservé à l'admin via UnlockServerCommand).
+            if (!string.IsNullOrWhiteSpace(DbUser) && !string.IsNullOrWhiteSpace(DbPassword))
+            {
+                IsServerUnlocked = false;
+                IsServerPanelOpen = false;
+            }
+
             SetStatus("Configuration serveur importée. Vous pouvez vous connecter.", false);
         }
         catch (Exception ex)
         {
             SetStatus($"Import impossible : {ex.Message}", true);
         }
+    }
+
+    /// <summary>
+    /// Réinitialise les infos de connexion serveur et rouvre le panneau (état « premier
+    /// lancement ») pour re-saisir ou ré-importer une configuration.
+    /// </summary>
+    private void ResetServer()
+    {
+        _configService.ResetServerConfig();
+
+        var c = _configService.Current;
+        DbHost = c.DbHost; DbPort = c.DbPort; DbName = c.DbName; DbUser = c.DbUser; DbPassword = c.DbPassword;
+        FtpHost = c.FtpHost; FtpPort = c.FtpPort; FtpUser = c.FtpUser; FtpPassword = c.FtpPassword;
+        FtpRootPath = c.FtpRootPath; FtpUseTls = c.FtpUseTls;
+
+        IsServerUnlocked = true;
+        IsServerPanelOpen = true;
+        SetStatus("Infos de connexion réinitialisées. Saisissez ou importez une nouvelle configuration.", false);
     }
 
     private async Task TestConnectionAsync()

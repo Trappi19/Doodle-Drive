@@ -27,7 +27,9 @@ public sealed partial class FilesViewModel : ObservableObject
     private List<(Folder Folder, FolderAccessLevel Access)> _accessible = new();
     private readonly List<FileEntryViewModel> _allEntries = new();
     private CancellationTokenSource? _thumbCts;
+    private CancellationTokenSource? _openCts;
     private bool _isProcessingUploads;
+    private bool _isProcessingDownloads;
 
     // Historique précédent/suivant (boutons latéraux de la souris, comme l'Explorateur).
     private readonly Stack<string> _backHistory = new();
@@ -70,6 +72,8 @@ public sealed partial class FilesViewModel : ObservableObject
         SetSortCommand = new RelayCommand<string?>(SetSort);
         ClearSearchCommand = new RelayCommand(() => SearchText = string.Empty);
         SignalUploadPanelCommand = new RelayCommand(() => IsUploadPanelOpen = !IsUploadPanelOpen);
+        SignalDownloadPanelCommand = new RelayCommand(() => IsDownloadPanelOpen = !IsDownloadPanelOpen);
+        CancelOpenCommand = new RelayCommand(() => _openCts?.Cancel());
     }
 
     // ----- Commandes -----
@@ -94,12 +98,15 @@ public sealed partial class FilesViewModel : ObservableObject
     public RelayCommand<string?> SetSortCommand { get; }
     public RelayCommand ClearSearchCommand { get; }
     public RelayCommand SignalUploadPanelCommand { get; }
+    public RelayCommand SignalDownloadPanelCommand { get; }
+    public RelayCommand CancelOpenCommand { get; }
 
     // ----- Collections -----
     public ObservableCollection<FolderNode> FolderTree { get; } = new();
     public ObservableCollection<FileEntryViewModel> Entries { get; } = new();
     public ObservableCollection<BreadcrumbItem> Breadcrumb { get; } = new();
     public ObservableCollection<UploadItemViewModel> Uploads { get; } = new();
+    public ObservableCollection<DownloadItemViewModel> Downloads { get; } = new();
 
     // ----- État -----
     [ObservableProperty] private FolderNode? _selectedFolderNode;
@@ -107,6 +114,10 @@ public sealed partial class FilesViewModel : ObservableObject
     [ObservableProperty] private bool _isBusy;
     [ObservableProperty] private bool _isGridView;
     [ObservableProperty] private bool _isUploadPanelOpen;
+    [ObservableProperty] private bool _isDownloadPanelOpen;
+
+    /// <summary>Vrai pendant un chargement annulable (prévisualisation / ouverture d'un fichier).</summary>
+    [ObservableProperty] private bool _isLoadingContent;
     [ObservableProperty] private string _searchText = string.Empty;
     [ObservableProperty] private int _selectedCount;
     [ObservableProperty] private FolderAccessLevel _currentAccess = FolderAccessLevel.None;
@@ -122,6 +133,7 @@ public sealed partial class FilesViewModel : ObservableObject
     public bool CanManageCurrent { get; private set; }
     public bool IsEntriesEmpty => Entries.Count == 0 && !IsBusy;
     public bool HasActiveUploads => Uploads.Any(u => u.IsActive);
+    public bool HasActiveDownloads => Downloads.Any(d => d.IsActive);
     public string CurrentAccessLabel => CurrentAccess switch
     {
         FolderAccessLevel.Owner => "Propriétaire",
@@ -523,6 +535,7 @@ public sealed partial class FilesViewModel : ObservableObject
         OnPropertyChanged(nameof(CurrentAccessLabel));
         OnPropertyChanged(nameof(IsEntriesEmpty));
         OnPropertyChanged(nameof(HasActiveUploads));
+        OnPropertyChanged(nameof(HasActiveDownloads));
         NewFolderCommand.NotifyCanExecuteChanged();
         DeleteSelectedCommand.NotifyCanExecuteChanged();
         DownloadSelectedCommand.NotifyCanExecuteChanged();
@@ -571,15 +584,21 @@ public sealed partial class FilesViewModel : ObservableObject
         try
         {
             IsBusy = true;
+            IsLoadingContent = true;
+            _openCts = new CancellationTokenSource();
             var temp = Path.Combine(Path.GetTempPath(), "DoodleDrive", "preview");
             Directory.CreateDirectory(temp);
             var local = Path.Combine(temp, entry.Name);
-            var ok = await _ftp.DownloadAsync(entry.FullPath, local);
+            var ok = await _ftp.DownloadAsync(entry.FullPath, local, null, _openCts.Token);
             if (!ok) { _notify.Error("Prévisualisation impossible", entry.Name); return; }
 
             var window = new PreviewWindow(entry.Name, local);
             App.SetOwner(window);
             window.Show();
+        }
+        catch (OperationCanceledException)
+        {
+            // Chargement annulé par l'utilisateur : rien à signaler.
         }
         catch (Exception ex)
         {
@@ -587,6 +606,9 @@ public sealed partial class FilesViewModel : ObservableObject
         }
         finally
         {
+            _openCts?.Dispose();
+            _openCts = null;
+            IsLoadingContent = false;
             IsBusy = false;
         }
     }
@@ -596,13 +618,19 @@ public sealed partial class FilesViewModel : ObservableObject
         try
         {
             IsBusy = true;
+            IsLoadingContent = true;
+            _openCts = new CancellationTokenSource();
             var temp = Path.Combine(Path.GetTempPath(), "DoodleDrive", "open");
             Directory.CreateDirectory(temp);
             var local = Path.Combine(temp, entry.Name);
-            var ok = await _ftp.DownloadAsync(entry.FullPath, local);
+            var ok = await _ftp.DownloadAsync(entry.FullPath, local, null, _openCts.Token);
             if (!ok) { _notify.Error("Ouverture impossible", entry.Name); return; }
 
             Process.Start(new ProcessStartInfo(local) { UseShellExecute = true });
+        }
+        catch (OperationCanceledException)
+        {
+            // Chargement annulé par l'utilisateur : rien à signaler.
         }
         catch (Exception ex)
         {
@@ -610,6 +638,9 @@ public sealed partial class FilesViewModel : ObservableObject
         }
         finally
         {
+            _openCts?.Dispose();
+            _openCts = null;
+            IsLoadingContent = false;
             IsBusy = false;
         }
     }
@@ -754,45 +785,82 @@ public sealed partial class FilesViewModel : ObservableObject
         c.LastDownloadFolder = dest;
         _configService.Save(c);
 
-        IsBusy = true;
-        var count = 0;
+        // Construit la file (les dossiers sont explorés récursivement). On n'active pas
+        // IsBusy : la navigation reste libre pendant que la file se télécharge en fond.
+        var newItems = new List<DownloadItemViewModel>();
         try
         {
             foreach (var item in items)
             {
                 if (item.IsDirectory)
-                    count += await DownloadDirectoryAsync(item.FullPath, Path.Combine(dest, item.Name));
+                    await EnqueueDownloadDirectoryAsync(item.FullPath, Path.Combine(dest, item.Name), newItems);
                 else
-                {
-                    var ok = await _ftp.DownloadAsync(item.FullPath, Path.Combine(dest, item.Name));
-                    if (ok) count++;
-                }
+                    newItems.Add(new DownloadItemViewModel(item.FullPath, Path.Combine(dest, item.Name), item.Name));
             }
-            _notify.Success("Téléchargement terminé", $"{count} fichier(s) enregistré(s).");
         }
         catch (Exception ex)
         {
-            _notify.Error("Téléchargement interrompu", ex.Message);
+            _notify.Error("Préparation du téléchargement impossible", ex.Message);
+            return;
         }
-        finally
-        {
-            IsBusy = false;
-        }
+
+        if (newItems.Count == 0) return;
+        foreach (var it in newItems) Downloads.Add(it);
+        IsDownloadPanelOpen = true;
+        OnPropertyChanged(nameof(HasActiveDownloads));
+        _ = ProcessDownloadQueueAsync();
     }
 
-    private async Task<int> DownloadDirectoryAsync(string remoteDir, string localDir)
+    private async Task EnqueueDownloadDirectoryAsync(string remoteDir, string localDir, List<DownloadItemViewModel> sink)
     {
         Directory.CreateDirectory(localDir);
-        var count = 0;
         var entries = await _ftp.ListAsync(remoteDir);
         foreach (var e in entries)
         {
             if (e.IsDirectory)
-                count += await DownloadDirectoryAsync(e.FullPath, Path.Combine(localDir, e.Name));
-            else if (await _ftp.DownloadAsync(e.FullPath, Path.Combine(localDir, e.Name)))
-                count++;
+                await EnqueueDownloadDirectoryAsync(e.FullPath, Path.Combine(localDir, e.Name), sink);
+            else
+                sink.Add(new DownloadItemViewModel(e.FullPath, Path.Combine(localDir, e.Name), e.Name));
         }
-        return count;
+    }
+
+    private async Task ProcessDownloadQueueAsync()
+    {
+        if (_isProcessingDownloads) return;
+        _isProcessingDownloads = true;
+        OnPropertyChanged(nameof(HasActiveDownloads));
+        try
+        {
+            while (true)
+            {
+                var item = Downloads.FirstOrDefault(d => d.Status == DownloadStatus.Pending);
+                if (item is null) break;
+
+                item.Status = DownloadStatus.Downloading;
+                var progress = new Progress<double>(p => item.Progress = p);
+                try
+                {
+                    var ok = await _ftp.DownloadAsync(item.RemotePath, item.LocalPath, progress);
+                    item.Progress = 100;
+                    item.Status = ok ? DownloadStatus.Completed : DownloadStatus.Failed;
+                }
+                catch (Exception ex)
+                {
+                    item.ErrorMessage = ex.Message;
+                    item.Status = DownloadStatus.Failed;
+                }
+            }
+
+            var done = Downloads.Count(d => d.Status == DownloadStatus.Completed);
+            var failed = Downloads.Count(d => d.Status == DownloadStatus.Failed);
+            if (failed == 0) _notify.Success("Téléchargement terminé", $"{done} fichier(s) enregistré(s).");
+            else _notify.Warning("Téléchargement terminé avec erreurs", $"{done} réussi(s), {failed} échoué(s).");
+        }
+        finally
+        {
+            _isProcessingDownloads = false;
+            OnPropertyChanged(nameof(HasActiveDownloads));
+        }
     }
 
     // =====================================================================

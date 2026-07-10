@@ -45,6 +45,9 @@
 
                     <Border Grid.Row="1" CornerRadius="10" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                         <ListView ItemsSource="{Binding Users}" Background="Transparent" BorderThickness="0">
+                            <ListView.ItemContainerStyle>
+                                <Style TargetType="ListViewItem" BasedOn="{StaticResource ListViewItemStyle}" />
+                            </ListView.ItemContainerStyle>
                             <ListView.View>
                                 <GridView>
                                     <GridViewColumn Width="220" Header="Identifiant">
@@ -118,6 +121,9 @@
             <TabItem Header="Tous les dossiers">
                 <Border Margin="0,12,0,0" CornerRadius="10" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                     <ListView ItemsSource="{Binding Folders}" Background="Transparent" BorderThickness="0">
+                        <ListView.ItemContainerStyle>
+                            <Style TargetType="ListViewItem" BasedOn="{StaticResource ListViewItemStyle}" />
+                        </ListView.ItemContainerStyle>
                         <ListView.View>
                             <GridView>
                                 <GridViewColumn Width="200" Header="Nom">

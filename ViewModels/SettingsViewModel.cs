@@ -14,15 +14,17 @@ public sealed partial class SettingsViewModel : ObservableObject
     private readonly FtpService _ftp;
     private readonly NotificationService _notify;
     private readonly Session _session;
+    private readonly DialogService _dialogs;
 
     public SettingsViewModel(AppConfigService configService, DatabaseService db, FtpService ftp,
-        NotificationService notify, Session session)
+        NotificationService notify, Session session, DialogService dialogs)
     {
         _configService = configService;
         _db = db;
         _ftp = ftp;
         _notify = notify;
         _session = session;
+        _dialogs = dialogs;
 
         var c = configService.Current;
         _dbHost = c.DbHost; _dbPort = c.DbPort; _dbName = c.DbName; _dbUser = c.DbUser; _dbPassword = c.DbPassword;
@@ -30,15 +32,21 @@ public sealed partial class SettingsViewModel : ObservableObject
         _ftpRootPath = c.FtpRootPath; _ftpUseTls = c.FtpUseTls;
         _theme = c.Theme; _defaultView = c.DefaultView;
         _launchAtStartup = StartupRegistration.IsEnabled();
+        _openWindowOnStartup = c.OpenWindowOnStartup;
 
         SaveCommand = new RelayCommand(Save);
         TestDbCommand = new AsyncRelayCommand(TestDbAsync, () => !IsBusy);
         TestFtpCommand = new AsyncRelayCommand(TestFtpAsync, () => !IsBusy);
+        ResetConnectionCommand = new RelayCommand(ResetConnection);
     }
+
+    /// <summary>Demande la déconnexion (après réinitialisation de la connexion serveur).</summary>
+    public event Action? SignOutRequested;
 
     public RelayCommand SaveCommand { get; }
     public AsyncRelayCommand TestDbCommand { get; }
     public AsyncRelayCommand TestFtpCommand { get; }
+    public RelayCommand ResetConnectionCommand { get; }
 
     /// <summary>Seul un admin peut voir/modifier la connexion serveur (les users ne choisissent pas leur point d'entrée).</summary>
     public bool IsAdmin => _session.IsAdmin;
@@ -59,6 +67,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private bool _ftpUseTls;
     [ObservableProperty] private string _defaultView;
     [ObservableProperty] private bool _launchAtStartup;
+    [ObservableProperty] private bool _openWindowOnStartup;
     [ObservableProperty] private bool _isBusy;
 
     [ObservableProperty] private string _theme;
@@ -87,6 +96,14 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
     }
 
+    /// <summary>Persiste immédiatement l'option (elle est lue au prochain démarrage de Windows).</summary>
+    partial void OnOpenWindowOnStartupChanged(bool value)
+    {
+        var c = _configService.Current;
+        c.OpenWindowOnStartup = value;
+        _configService.Save(c);
+    }
+
     public static void ApplyTheme(string theme)
     {
         switch (theme)
@@ -112,6 +129,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         c.FtpPassword = FtpPassword; c.FtpRootPath = FtpPathUtil.Normalize(FtpRootPath);
         c.FtpUseTls = FtpUseTls;
         c.Theme = Theme; c.DefaultView = DefaultView;
+        c.OpenWindowOnStartup = OpenWindowOnStartup;
         _configService.Save(c);
         _notify.Success("Paramètres enregistrés");
     }
@@ -136,6 +154,22 @@ public sealed partial class SettingsViewModel : ObservableObject
         {
             _notify.Error("Export impossible", ex.Message);
         }
+    }
+
+    /// <summary>
+    /// Réinitialise les infos de connexion serveur puis déconnecte l'utilisateur. Accessible
+    /// à tous (un utilisateur bloqué peut ainsi repartir de zéro et ré-importer une config).
+    /// </summary>
+    private void ResetConnection()
+    {
+        if (!_dialogs.Confirm(
+                "Réinitialiser la connexion",
+                "Les informations de connexion au serveur seront effacées et vous serez déconnecté. Continuer ?",
+                "Réinitialiser et déconnecter", destructive: true))
+            return;
+
+        _configService.ResetServerConfig();
+        SignOutRequested?.Invoke();
     }
 
     private async Task TestDbAsync()

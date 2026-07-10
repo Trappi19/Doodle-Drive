@@ -49,6 +49,10 @@
                         <CheckBox Content="Lancer Doodle Drive au démarrage de Windows"
                                   IsChecked="{Binding LaunchAtStartup, Mode=TwoWay}"
                                   Margin="0,14,0,0" />
+                        <CheckBox Content="Ouvrir aussi la fenêtre (sinon démarre en tâche de fond)"
+                                  IsChecked="{Binding OpenWindowOnStartup, Mode=TwoWay}"
+                                  IsEnabled="{Binding LaunchAtStartup}"
+                                  Margin="24,8,0,0" />
                     </StackPanel>
                 </Border>
 
@@ -117,6 +121,18 @@
                                    Text="Exporte les paramètres serveur dans un fichier chiffré (.ddconfig). Importez-le sur une autre machine depuis l'écran de connexion (bouton « Importer » ou glisser-déposer) sans communiquer les identifiants." />
                         <ui:Button Click="OnExportProfileClick" Appearance="Secondary"
                                    HorizontalAlignment="Left" Content="Exporter mon profil…" />
+                    </StackPanel>
+                </Border>
+
+                <!-- Connexion (tous les utilisateurs) -->
+                <Border CornerRadius="10" Padding="18" Margin="0,0,0,14"
+                        Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                    <StackPanel>
+                        <TextBlock Text="Connexion" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,6" />
+                        <TextBlock TextWrapping="Wrap" Opacity="0.7" FontSize="12" Margin="0,0,0,12"
+                                   Text="Réinitialise les informations de connexion au serveur. Vous serez déconnecté immédiatement ; l'app redemandera (ou pourra ré-importer) une configuration." />
+                        <ui:Button Command="{Binding ResetConnectionCommand}" Appearance="Secondary"
+                                   HorizontalAlignment="Left" Content="Réinitialiser la connexion…" />
                     </StackPanel>
                 </Border>
             </StackPanel>

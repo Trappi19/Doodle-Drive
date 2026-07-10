@@ -46,6 +46,9 @@
                                           SelectedItem="{Binding DefaultView, Mode=TwoWay}" MinHeight="36" />
                             </StackPanel>
                         </Grid>
+                        <CheckBox Content="Lancer Doodle Drive au démarrage de Windows"
+                                  IsChecked="{Binding LaunchAtStartup, Mode=TwoWay}"
+                                  Margin="0,14,0,0" />
                     </StackPanel>
                 </Border>
 

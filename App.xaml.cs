@@ -10,6 +10,9 @@ public partial class App : Application
 {
     private AppServices _services = null!;
     private bool _returningToLogin;
+    private TrayService? _tray;
+    private bool _exitRequested;
+    private bool _trayHintShown;
 
     /// <summary>Exécute une action sur le thread UI (utilisé depuis les tâches de fond).</summary>
     public static void Dispatch(Action action) => Current?.Dispatcher.Invoke(action);
@@ -63,6 +66,22 @@ public partial class App : Application
         var vm = new ShellViewModel(_services);
         var window = new MainWindow { DataContext = vm };
 
+        // Icône de la zone de notification : l'app tourne en tâche de fond.
+        _tray = new TrayService();
+        _tray.OpenRequested += () => Dispatch(() =>
+        {
+            window.Show();
+            if (window.WindowState == WindowState.Minimized)
+                window.WindowState = WindowState.Normal;
+            window.Activate();
+        });
+        _tray.ExitRequested += () => Dispatch(() =>
+        {
+            _exitRequested = true;
+            window.Close();
+        });
+        _tray.Show();
+
         vm.SignedOut += () =>
         {
             _returningToLogin = true;
@@ -70,8 +89,23 @@ public partial class App : Application
             window.Close();
         };
 
+        window.Closing += (_, e) =>
+        {
+            // Fermer la fenêtre = passer en tâche de fond (sauf Quitter ou déconnexion).
+            if (_exitRequested || _returningToLogin) return;
+            e.Cancel = true;
+            window.Hide();
+            if (!_trayHintShown)
+            {
+                _trayHintShown = true;
+                _tray?.ShowBackgroundHint();
+            }
+        };
+
         window.Closed += (_, _) =>
         {
+            _tray?.Dispose();
+            _tray = null;
             if (_returningToLogin)
             {
                 _returningToLogin = false;

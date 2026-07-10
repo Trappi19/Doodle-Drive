@@ -28,6 +28,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         _ftpHost = c.FtpHost; _ftpPort = c.FtpPort; _ftpUser = c.FtpUser; _ftpPassword = c.FtpPassword;
         _ftpRootPath = c.FtpRootPath; _ftpUseTls = c.FtpUseTls;
         _theme = c.Theme; _defaultView = c.DefaultView;
+        _launchAtStartup = StartupRegistration.IsEnabled();
 
         SaveCommand = new RelayCommand(Save);
         TestDbCommand = new AsyncRelayCommand(TestDbAsync, () => !IsBusy);
@@ -56,6 +57,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private string _ftpRootPath;
     [ObservableProperty] private bool _ftpUseTls;
     [ObservableProperty] private string _defaultView;
+    [ObservableProperty] private bool _launchAtStartup;
     [ObservableProperty] private bool _isBusy;
 
     [ObservableProperty] private string _theme;
@@ -67,6 +69,22 @@ public sealed partial class SettingsViewModel : ObservableObject
     }
 
     partial void OnThemeChanged(string value) => ApplyTheme(value);
+
+    /// <summary>Applique immédiatement le lancement au démarrage (clé Run utilisateur).</summary>
+    partial void OnLaunchAtStartupChanged(bool value)
+    {
+        try
+        {
+            StartupRegistration.SetEnabled(value);
+            _notify.Success(
+                "Démarrage automatique",
+                value ? "Doodle Drive se lancera à l'ouverture de session." : "Désactivé.");
+        }
+        catch (Exception ex)
+        {
+            _notify.Error("Réglage impossible", ex.Message);
+        }
+    }
 
     public static void ApplyTheme(string theme)
     {

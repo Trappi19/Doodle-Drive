@@ -6,6 +6,8 @@
     <RootNamespace>DoodleDrive</RootNamespace>
     <AssemblyName>DoodleDrive</AssemblyName>
     <UseWPF>true</UseWPF>
+    <!-- NotifyIcon (icône de la zone de notification) vient de Windows Forms -->
+    <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <ApplicationIcon>assets\icon.ico</ApplicationIcon>
@@ -13,6 +15,13 @@
     <Company>Doodle Drive</Company>
     <Product>Doodle Drive</Product>
   </PropertyGroup>
+
+  <!-- WinForms ne sert qu'au NotifyIcon (TrayService, via alias) : on retire son
+       using implicite global qui entre en conflit avec les types WPF. -->
+  <ItemGroup>
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="WPF-UI" Version="4.3.0" />

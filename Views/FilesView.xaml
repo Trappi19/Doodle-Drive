@@ -272,7 +272,7 @@
                 </Grid.RowDefinitions>
 
                 <Border Grid.Row="0" CornerRadius="10" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
-                    <Grid>
+                    <Grid x:Name="ContentHost">
                         <!-- Vue grille -->
                         <ListBox x:Name="GridList" ItemsSource="{Binding Entries}"
                                  Background="Transparent" BorderThickness="0" Padding="8"

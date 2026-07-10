@@ -53,7 +53,7 @@ public sealed class DatabaseService
 
     public async Task<User?> GetUserByUsernameAsync(string username, CancellationToken ct = default)
     {
-        const string sql = @"SELECT id, username, password_hash, role, created_at
+        const string sql = @"SELECT id, username, password_hash, role, created_at, default_path, last_path
                              FROM users WHERE username = @username LIMIT 1;";
         await using var conn = CreateConnection();
         return await conn.QueryFirstOrDefaultAsync<User>(new CommandDefinition(sql, new { username }, cancellationToken: ct));
@@ -61,7 +61,7 @@ public sealed class DatabaseService
 
     public async Task<IReadOnlyList<User>> GetAllUsersAsync(CancellationToken ct = default)
     {
-        const string sql = @"SELECT id, username, password_hash, role, created_at
+        const string sql = @"SELECT id, username, password_hash, role, created_at, default_path, last_path
                              FROM users ORDER BY username;";
         await using var conn = CreateConnection();
         var users = await conn.QueryAsync<User>(new CommandDefinition(sql, cancellationToken: ct));
@@ -97,6 +97,22 @@ public sealed class DatabaseService
         const string sql = "UPDATE users SET password_hash = @passwordHash WHERE id = @userId;";
         await using var conn = CreateConnection();
         await conn.ExecuteAsync(new CommandDefinition(sql, new { userId, passwordHash }, cancellationToken: ct));
+    }
+
+    /// <summary>Chemin d'atterrissage attribué par un admin (null pour revenir à l'automatique).</summary>
+    public async Task UpdateUserDefaultPathAsync(int userId, string? path, CancellationToken ct = default)
+    {
+        const string sql = "UPDATE users SET default_path = @path WHERE id = @userId;";
+        await using var conn = CreateConnection();
+        await conn.ExecuteAsync(new CommandDefinition(sql, new { userId, path }, cancellationToken: ct));
+    }
+
+    /// <summary>Dernier chemin visité (mémorisé à chaque navigation, best-effort).</summary>
+    public async Task UpdateUserLastPathAsync(int userId, string? path, CancellationToken ct = default)
+    {
+        const string sql = "UPDATE users SET last_path = @path WHERE id = @userId;";
+        await using var conn = CreateConnection();
+        await conn.ExecuteAsync(new CommandDefinition(sql, new { userId, path }, cancellationToken: ct));
     }
 
     public async Task DeleteUserAsync(int userId, CancellationToken ct = default)

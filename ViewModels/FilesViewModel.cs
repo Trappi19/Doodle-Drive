@@ -125,9 +125,30 @@ public sealed partial class FilesViewModel : ObservableObject
     {
         await LoadFolderTreeAsync();
 
-        var start = _session.IsAdmin
+        // Comportement automatique : premier dossier attribué (racine FTP pour l'admin).
+        var auto = _session.IsAdmin
             ? FtpPathUtil.Normalize(_configService.Current.FtpRootPath)
             : FolderTree.FirstOrDefault()?.FtpPath ?? FtpPathUtil.Normalize(_configService.Current.FtpRootPath);
+
+        // Priorité : dernier chemin visité -> chemin par défaut (admin) -> automatique.
+        // Un candidat n'est retenu que s'il existe encore sur le FTP et reste accessible.
+        var start = auto;
+        foreach (var candidate in new[] { _session.CurrentUser?.LastPath, _session.CurrentUser?.DefaultPath })
+        {
+            if (string.IsNullOrWhiteSpace(candidate)) continue;
+            var path = FtpPathUtil.Normalize(candidate);
+            if (AccessForPath(path) == FolderAccessLevel.None) continue;
+            try
+            {
+                if (!await _ftp.DirectoryExistsAsync(path)) continue;
+            }
+            catch
+            {
+                continue;
+            }
+            start = path;
+            break;
+        }
 
         await NavigateToAsync(start);
     }
@@ -246,6 +267,7 @@ public sealed partial class FilesViewModel : ObservableObject
 
             ApplyFilterAndSort();
             StartThumbnailLoading();
+            _ = SaveLastPathAsync(path); // mémorisé pour la prochaine connexion (PC ou mobile)
         }
         catch (OperationCanceledException)
         {
@@ -262,6 +284,18 @@ public sealed partial class FilesViewModel : ObservableObject
     }
 
     private Task RefreshAsync() => NavigateToAsync(CurrentPath);
+
+    private async Task SaveLastPathAsync(string path)
+    {
+        try
+        {
+            await _db.UpdateUserLastPathAsync(_session.UserId, path);
+        }
+        catch
+        {
+            // Mémorisation best-effort : ne doit jamais gêner la navigation.
+        }
+    }
 
     private void BuildBreadcrumb(string path)
     {

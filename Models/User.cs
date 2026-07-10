@@ -12,5 +12,11 @@ public sealed class User
     public UserRole Role { get; init; }
     public DateTime CreatedAt { get; init; }
 
+    /// <summary>Chemin d'atterrissage attribué par un admin (null = comportement automatique).</summary>
+    public string? DefaultPath { get; init; }
+
+    /// <summary>Dernier chemin visité, mémorisé en base (partagé entre PC et mobile).</summary>
+    public string? LastPath { get; init; }
+
     public bool IsAdmin => Role == UserRole.Admin;
 }

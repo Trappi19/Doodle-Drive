@@ -75,12 +75,19 @@
                                             </DataTemplate>
                                         </GridViewColumn.CellTemplate>
                                     </GridViewColumn>
+                                    <GridViewColumn Width="220" Header="Chemin par défaut"
+                                                    DisplayMemberBinding="{Binding DefaultPath}" />
                                     <GridViewColumn Width="160" Header="Créé le"
                                                     DisplayMemberBinding="{Binding CreatedAt, StringFormat=dd/MM/yyyy}" />
-                                    <GridViewColumn Width="180" Header="Actions">
+                                    <GridViewColumn Width="230" Header="Actions">
                                         <GridViewColumn.CellTemplate>
                                             <DataTemplate>
                                                 <StackPanel Orientation="Horizontal">
+                                                    <ui:Button Appearance="Secondary" Margin="0,0,6,0" ToolTip="Chemin par défaut à la connexion"
+                                                               Command="{Binding DataContext.SetDefaultPathCommand, RelativeSource={RelativeSource AncestorType=ListView}}"
+                                                               CommandParameter="{Binding}">
+                                                        <TextBlock Style="{StaticResource GlyphText}" Text="&#xE80F;" FontSize="13" />
+                                                    </ui:Button>
                                                     <ui:Button Appearance="Secondary" Margin="0,0,6,0" ToolTip="Réinitialiser le mot de passe"
                                                                Command="{Binding DataContext.ResetPasswordCommand, RelativeSource={RelativeSource AncestorType=ListView}}"
                                                                CommandParameter="{Binding}">

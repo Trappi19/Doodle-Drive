@@ -24,6 +24,7 @@ public sealed partial class AdminViewModel : ObservableObject
 
         RefreshCommand = new AsyncRelayCommand(LoadAsync, () => !IsBusy);
         CreateUserCommand = new AsyncRelayCommand(CreateUserAsync, () => !IsBusy);
+        SetDefaultPathCommand = new AsyncRelayCommand<User?>(SetDefaultPathAsync);
         ResetPasswordCommand = new AsyncRelayCommand<User?>(ResetPasswordAsync);
         ToggleRoleCommand = new AsyncRelayCommand<User?>(ToggleRoleAsync);
         DeleteUserCommand = new AsyncRelayCommand<User?>(DeleteUserAsync);
@@ -38,6 +39,7 @@ public sealed partial class AdminViewModel : ObservableObject
 
     public AsyncRelayCommand RefreshCommand { get; }
     public AsyncRelayCommand CreateUserCommand { get; }
+    public AsyncRelayCommand<User?> SetDefaultPathCommand { get; }
     public AsyncRelayCommand<User?> ResetPasswordCommand { get; }
     public AsyncRelayCommand<User?> ToggleRoleCommand { get; }
     public AsyncRelayCommand<User?> DeleteUserCommand { get; }
@@ -107,6 +109,36 @@ public sealed partial class AdminViewModel : ObservableObject
         finally
         {
             IsBusy = false;
+        }
+    }
+
+    /// <summary>
+    /// Chemin d'atterrissage attribué à l'utilisateur à la connexion (priorité :
+    /// dernier chemin visité, puis ce chemin par défaut, puis l'automatique).
+    /// Saisie vide = retour au comportement automatique.
+    /// </summary>
+    private async Task SetDefaultPathAsync(User? user)
+    {
+        if (user is null) return;
+        var input = _dialogs.Prompt(
+            "Chemin par défaut",
+            $"Dossier d'atterrissage de « {user.Username} » à la connexion (vide = automatique) :",
+            user.DefaultPath ?? string.Empty);
+        if (input is null) return; // annulé
+
+        var normalized = string.IsNullOrWhiteSpace(input) ? null : FtpPathUtil.Normalize(input);
+        try
+        {
+            await _db.UpdateUserDefaultPathAsync(user.Id, normalized);
+            if (normalized is null)
+                _notify.Success("Chemin par défaut retiré", user.Username);
+            else
+                _notify.Success("Chemin par défaut défini", $"{user.Username} → {normalized}");
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _notify.Error("Mise à jour impossible", ex.Message);
         }
     }
 

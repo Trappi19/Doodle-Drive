@@ -8,39 +8,45 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              d:DataContext="{d:DesignInstance vm:FilesViewModel}"
-             d:DesignHeight="600" d:DesignWidth="900">
+             d:DesignHeight="600" d:DesignWidth="900"
+             PreviewMouseDown="FilesView_OnPreviewMouseDown">
 
     <UserControl.Resources>
+        <!-- Menu contextuel d'un élément (partagé entre vue grille et vue liste).
+             L'hôte doit poser Tag = FilesViewModel (DataContext racine). -->
+        <ContextMenu x:Key="EntryContextMenu" x:Shared="False">
+            <MenuItem Header="Ouvrir / Aperçu"
+                      Command="{Binding PlacementTarget.Tag.OpenEntryCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+            <MenuItem Header="Télécharger"
+                      Command="{Binding PlacementTarget.Tag.DownloadSelectedCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+            <MenuItem Header="Copier le chemin"
+                      Command="{Binding PlacementTarget.Tag.CopyPathCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+            <Separator />
+            <MenuItem Header="Renommer"
+                      Command="{Binding PlacementTarget.Tag.RenameCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+            <MenuItem Header="Supprimer"
+                      Command="{Binding PlacementTarget.Tag.DeleteSelectedCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+            <Separator Visibility="{Binding PlacementTarget.DataContext.IsDirectory, RelativeSource={RelativeSource AncestorType=ContextMenu}, Converter={StaticResource BoolToVis}}" />
+            <MenuItem Header="Gérer les accès…"
+                      Visibility="{Binding PlacementTarget.DataContext.IsDirectory, RelativeSource={RelativeSource AncestorType=ContextMenu}, Converter={StaticResource BoolToVis}}"
+                      Command="{Binding PlacementTarget.Tag.ManageAccessForEntryCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+        </ContextMenu>
+
         <!-- Carte d'un élément en vue grille -->
         <DataTemplate x:Key="GridItemTemplate" DataType="{x:Type vm:FileEntryViewModel}">
             <Border Width="158" Height="150" CornerRadius="10" Margin="6" Padding="10"
                     Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
-                    Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=ListBox}}">
+                    Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=ListBox}}"
+                    ContextMenu="{StaticResource EntryContextMenu}">
                 <Border.InputBindings>
                     <MouseBinding MouseAction="LeftDoubleClick"
                                   Command="{Binding DataContext.OpenEntryCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
                                   CommandParameter="{Binding}" />
                 </Border.InputBindings>
-                <Border.ContextMenu>
-                    <ContextMenu>
-                        <MenuItem Header="Ouvrir / Aperçu"
-                                  Command="{Binding PlacementTarget.Tag.OpenEntryCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                                  CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
-                        <MenuItem Header="Télécharger"
-                                  Command="{Binding PlacementTarget.Tag.DownloadSelectedCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
-                        <Separator />
-                        <MenuItem Header="Renommer"
-                                  Command="{Binding PlacementTarget.Tag.RenameCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                                  CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
-                        <MenuItem Header="Supprimer"
-                                  Command="{Binding PlacementTarget.Tag.DeleteSelectedCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
-                        <Separator Visibility="{Binding PlacementTarget.DataContext.IsDirectory, RelativeSource={RelativeSource AncestorType=ContextMenu}, Converter={StaticResource BoolToVis}}" />
-                        <MenuItem Header="Gérer les accès…"
-                                  Visibility="{Binding PlacementTarget.DataContext.IsDirectory, RelativeSource={RelativeSource AncestorType=ContextMenu}, Converter={StaticResource BoolToVis}}"
-                                  Command="{Binding PlacementTarget.Tag.ManageAccessForEntryCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                                  CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
-                    </ContextMenu>
-                </Border.ContextMenu>
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="*" />
@@ -200,13 +206,19 @@
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
 
-            <Border Grid.Column="2" CornerRadius="12" Padding="10,3" VerticalAlignment="Center"
-                    Background="{DynamicResource CardBackgroundFillColorSecondaryBrush}">
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock Style="{StaticResource GlyphText}" Text="&#xE72E;" FontSize="12" Margin="0,0,6,0" Opacity="0.7" />
-                    <TextBlock Text="{Binding CurrentAccessLabel}" FontSize="12" Opacity="0.85" />
-                </StackPanel>
-            </Border>
+            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                <ui:Button Command="{Binding CopyCurrentPathCommand}" Appearance="Transparent"
+                           Padding="6" Margin="0,0,6,0" ToolTip="Copier le chemin d'accès">
+                    <TextBlock Style="{StaticResource GlyphText}" Text="&#xE8C8;" FontSize="14" />
+                </ui:Button>
+                <Border CornerRadius="12" Padding="10,3" VerticalAlignment="Center"
+                        Background="{DynamicResource CardBackgroundFillColorSecondaryBrush}">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Style="{StaticResource GlyphText}" Text="&#xE72E;" FontSize="12" Margin="0,0,6,0" Opacity="0.7" />
+                        <TextBlock Text="{Binding CurrentAccessLabel}" FontSize="12" Opacity="0.85" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
         </Grid>
 
         <!-- ==================== Corps : arbre + contenu ==================== -->
@@ -289,6 +301,8 @@
                             <ListView.ItemContainerStyle>
                                 <Style TargetType="ListViewItem">
                                     <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay}" />
+                                    <Setter Property="Tag" Value="{Binding DataContext, RelativeSource={RelativeSource AncestorType=ListView}}" />
+                                    <Setter Property="ContextMenu" Value="{StaticResource EntryContextMenu}" />
                                     <EventSetter Event="MouseDoubleClick" Handler="DetailItem_OnDoubleClick" />
                                 </Style>
                             </ListView.ItemContainerStyle>

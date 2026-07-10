@@ -29,6 +29,12 @@ public sealed partial class FilesViewModel : ObservableObject
     private CancellationTokenSource? _thumbCts;
     private bool _isProcessingUploads;
 
+    // Historique précédent/suivant (boutons latéraux de la souris, comme l'Explorateur).
+    private readonly Stack<string> _backHistory = new();
+    private readonly Stack<string> _forwardHistory = new();
+    private bool _isHistoryNavigation;
+    private bool _hasNavigated;
+
     public FilesViewModel(
         DatabaseService db, FtpService ftp, ThumbnailService thumbnails, DialogService dialogs,
         NotificationService notify, Session session, AppConfigService configService)
@@ -45,6 +51,8 @@ public sealed partial class FilesViewModel : ObservableObject
 
         RefreshCommand = new AsyncRelayCommand(RefreshAsync, () => !IsBusy);
         NavigateUpCommand = new AsyncRelayCommand(NavigateUpAsync, CanNavigateUp);
+        NavigateBackCommand = new AsyncRelayCommand(NavigateBackAsync, () => _backHistory.Count > 0 && !IsBusy);
+        NavigateForwardCommand = new AsyncRelayCommand(NavigateForwardAsync, () => _forwardHistory.Count > 0 && !IsBusy);
         NavigateToCommand = new AsyncRelayCommand<string?>(NavigateToAsync);
         OpenEntryCommand = new AsyncRelayCommand<FileEntryViewModel?>(OpenEntryAsync);
         NewFolderCommand = new AsyncRelayCommand(NewFolderAsync, () => CanWriteCurrent && !IsBusy);
@@ -56,6 +64,8 @@ public sealed partial class FilesViewModel : ObservableObject
         ManageAccessCommand = new AsyncRelayCommand(ManageAccessCurrentAsync, () => CanManageCurrent);
         ManageAccessForNodeCommand = new AsyncRelayCommand<FolderNode?>(ManageAccessForNodeAsync);
         ManageAccessForEntryCommand = new AsyncRelayCommand<FileEntryViewModel?>(ManageAccessForEntryAsync);
+        CopyPathCommand = new RelayCommand<FileEntryViewModel?>(CopyPath);
+        CopyCurrentPathCommand = new RelayCommand(() => CopyToClipboard(CurrentPath));
         ToggleViewCommand = new RelayCommand(() => IsGridView = !IsGridView);
         SetSortCommand = new RelayCommand<string?>(SetSort);
         ClearSearchCommand = new RelayCommand(() => SearchText = string.Empty);
@@ -65,6 +75,8 @@ public sealed partial class FilesViewModel : ObservableObject
     // ----- Commandes -----
     public AsyncRelayCommand RefreshCommand { get; }
     public AsyncRelayCommand NavigateUpCommand { get; }
+    public AsyncRelayCommand NavigateBackCommand { get; }
+    public AsyncRelayCommand NavigateForwardCommand { get; }
     public AsyncRelayCommand<string?> NavigateToCommand { get; }
     public AsyncRelayCommand<FileEntryViewModel?> OpenEntryCommand { get; }
     public AsyncRelayCommand NewFolderCommand { get; }
@@ -76,6 +88,8 @@ public sealed partial class FilesViewModel : ObservableObject
     public AsyncRelayCommand ManageAccessCommand { get; }
     public AsyncRelayCommand<FolderNode?> ManageAccessForNodeCommand { get; }
     public AsyncRelayCommand<FileEntryViewModel?> ManageAccessForEntryCommand { get; }
+    public RelayCommand<FileEntryViewModel?> CopyPathCommand { get; }
+    public RelayCommand CopyCurrentPathCommand { get; }
     public RelayCommand ToggleViewCommand { get; }
     public RelayCommand<string?> SetSortCommand { get; }
     public RelayCommand ClearSearchCommand { get; }
@@ -240,6 +254,15 @@ public sealed partial class FilesViewModel : ObservableObject
         try
         {
             var entries = await _ftp.ListAsync(path);
+
+            // Alimente l'historique (sauf refresh, navigation d'historique ou 1er chargement).
+            if (!_isHistoryNavigation && _hasNavigated && CurrentPath != path)
+            {
+                _backHistory.Push(CurrentPath);
+                _forwardHistory.Clear();
+            }
+            _hasNavigated = true;
+
             CurrentPath = path;
             CurrentAccess = AccessForPath(path);
             await UpdateManageStateAsync(path);
@@ -284,6 +307,38 @@ public sealed partial class FilesViewModel : ObservableObject
     }
 
     private Task RefreshAsync() => NavigateToAsync(CurrentPath);
+
+    private async Task NavigateBackAsync()
+    {
+        if (_backHistory.Count == 0) return;
+        var target = _backHistory.Pop();
+        _forwardHistory.Push(CurrentPath);
+        _isHistoryNavigation = true;
+        try
+        {
+            await NavigateToAsync(target);
+        }
+        finally
+        {
+            _isHistoryNavigation = false;
+        }
+    }
+
+    private async Task NavigateForwardAsync()
+    {
+        if (_forwardHistory.Count == 0) return;
+        var target = _forwardHistory.Pop();
+        _backHistory.Push(CurrentPath);
+        _isHistoryNavigation = true;
+        try
+        {
+            await NavigateToAsync(target);
+        }
+        finally
+        {
+            _isHistoryNavigation = false;
+        }
+    }
 
     private async Task SaveLastPathAsync(string path)
     {
@@ -474,6 +529,8 @@ public sealed partial class FilesViewModel : ObservableObject
         UploadFilesCommand.NotifyCanExecuteChanged();
         ManageAccessCommand.NotifyCanExecuteChanged();
         NavigateUpCommand.NotifyCanExecuteChanged();
+        NavigateBackCommand.NotifyCanExecuteChanged();
+        NavigateForwardCommand.NotifyCanExecuteChanged();
         RefreshCommand.NotifyCanExecuteChanged();
     }
 
@@ -895,6 +952,25 @@ public sealed partial class FilesViewModel : ObservableObject
     // =====================================================================
     //  Divers
     // =====================================================================
+
+    private void CopyPath(FileEntryViewModel? entry)
+    {
+        if (entry is not null) CopyToClipboard(entry.FullPath);
+    }
+
+    private void CopyToClipboard(string path)
+    {
+        try
+        {
+            System.Windows.Clipboard.SetText(path);
+            _notify.Success("Chemin copié", path);
+        }
+        catch (Exception ex)
+        {
+            // Le presse-papiers Windows peut être momentanément verrouillé par une autre app.
+            _notify.Error("Copie impossible", ex.Message);
+        }
+    }
 
     private static string SanitizeName(string name)
     {

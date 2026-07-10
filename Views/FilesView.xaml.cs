@@ -36,4 +36,21 @@ public partial class FilesView : UserControl
         if (Vm is not null && sender is ListViewItem { DataContext: FileEntryViewModel entry })
             await Vm.OpenEntryCommand.ExecuteAsync(entry);
     }
+
+    /// <summary>Boutons latéraux de la souris = précédent/suivant, comme dans l'Explorateur.</summary>
+    private async void FilesView_OnPreviewMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (Vm is null) return;
+
+        if (e.ChangedButton == MouseButton.XButton1 && Vm.NavigateBackCommand.CanExecute(null))
+        {
+            e.Handled = true;
+            await Vm.NavigateBackCommand.ExecuteAsync(null);
+        }
+        else if (e.ChangedButton == MouseButton.XButton2 && Vm.NavigateForwardCommand.CanExecute(null))
+        {
+            e.Handled = true;
+            await Vm.NavigateForwardCommand.ExecuteAsync(null);
+        }
+    }
 }

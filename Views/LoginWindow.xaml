@@ -114,6 +114,29 @@
 
                         <!-- Réglages serveur (déverrouillés) -->
                         <StackPanel Visibility="{Binding IsServerUnlocked, Converter={StaticResource BoolToVis}}">
+
+                        <TextBlock Text="Connexions enregistrées" FontWeight="SemiBold" Margin="0,0,0,6"
+                                   Visibility="{Binding SavedConnections.Count, Converter={StaticResource CountToVis}}" />
+                        <ComboBox ItemsSource="{Binding SavedConnections}"
+                                  SelectedItem="{Binding SelectedConnection, Mode=TwoWay}"
+                                  MinHeight="36"
+                                  Visibility="{Binding SavedConnections.Count, Converter={StaticResource CountToVis}}" />
+                        <Grid Margin="0,8,0,18">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="8" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="6" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <ui:TextBox Grid.Column="0" Text="{Binding NewConnectionName, UpdateSourceTrigger=PropertyChanged}"
+                                        PlaceholderText="Nom de la connexion" />
+                            <ui:Button Grid.Column="2" Command="{Binding SaveConnectionCommand}"
+                                       Content="Enregistrer" Appearance="Secondary" />
+                            <ui:Button Grid.Column="4" Command="{Binding DeleteConnectionCommand}"
+                                       Content="Supprimer" Appearance="Secondary" />
+                        </Grid>
+
                         <TextBlock Text="Base MariaDB" FontWeight="SemiBold" Margin="0,0,0,6" />
                         <Grid>
                             <Grid.ColumnDefinitions>

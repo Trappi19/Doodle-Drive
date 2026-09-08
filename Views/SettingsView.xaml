@@ -124,6 +124,19 @@
                     </StackPanel>
                 </Border>
 
+                <!-- Partage par lien public (admin) -->
+                <Border CornerRadius="10" Padding="18" Margin="0,0,0,14"
+                        Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                        Visibility="{Binding IsAdmin, Converter={StaticResource BoolToVis}}">
+                    <StackPanel>
+                        <TextBlock Text="Partage par lien" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,6" />
+                        <TextBlock TextWrapping="Wrap" Opacity="0.7" FontSize="12" Margin="0,0,0,10"
+                                   Text="URL publique du serveur de partage (ex. via Tailscale Funnel). Sert à générer les liens de partage. Laisser vide pour désactiver le partage." />
+                        <ui:TextBox Text="{Binding ShareBaseUrl, Mode=TwoWay}" MinHeight="36"
+                                    PlaceholderText="https://debianregion.xxxx.ts.net" />
+                    </StackPanel>
+                </Border>
+
                 <!-- Connexion (tous les utilisateurs) -->
                 <Border CornerRadius="10" Padding="18" Margin="0,0,0,14"
                         Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">

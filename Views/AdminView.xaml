@@ -44,11 +44,8 @@
                     </ui:Button>
 
                     <Border Grid.Row="1" CornerRadius="10" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
-                        <ListView ItemsSource="{Binding Users}" Background="Transparent" BorderThickness="0">
-                            <ListView.ItemContainerStyle>
-                                <Style TargetType="ListViewItem" BasedOn="{StaticResource ListViewItemStyle}" />
-                            </ListView.ItemContainerStyle>
-                            <ListView.View>
+                        <ui:ListView ItemsSource="{Binding Users}" Background="Transparent" BorderThickness="0">
+                            <ui:ListView.View>
                                 <GridView>
                                     <GridViewColumn Width="220" Header="Identifiant">
                                         <GridViewColumn.CellTemplate>
@@ -111,8 +108,8 @@
                                         </GridViewColumn.CellTemplate>
                                     </GridViewColumn>
                                 </GridView>
-                            </ListView.View>
-                        </ListView>
+                            </ui:ListView.View>
+                        </ui:ListView>
                     </Border>
                 </Grid>
             </TabItem>
@@ -120,11 +117,8 @@
             <!-- ==================== Dossiers ==================== -->
             <TabItem Header="Tous les dossiers">
                 <Border Margin="0,12,0,0" CornerRadius="10" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
-                    <ListView ItemsSource="{Binding Folders}" Background="Transparent" BorderThickness="0">
-                        <ListView.ItemContainerStyle>
-                            <Style TargetType="ListViewItem" BasedOn="{StaticResource ListViewItemStyle}" />
-                        </ListView.ItemContainerStyle>
-                        <ListView.View>
+                    <ui:ListView ItemsSource="{Binding Folders}" Background="Transparent" BorderThickness="0">
+                        <ui:ListView.View>
                             <GridView>
                                 <GridViewColumn Width="200" Header="Nom">
                                     <GridViewColumn.CellTemplate>
@@ -158,8 +152,8 @@
                                     </GridViewColumn.CellTemplate>
                                 </GridViewColumn>
                             </GridView>
-                        </ListView.View>
-                    </ListView>
+                        </ui:ListView.View>
+                    </ui:ListView>
                 </Border>
             </TabItem>
         </TabControl>

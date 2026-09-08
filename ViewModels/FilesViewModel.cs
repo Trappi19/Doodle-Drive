@@ -66,6 +66,7 @@ public sealed partial class FilesViewModel : ObservableObject
         ManageAccessCommand = new AsyncRelayCommand(ManageAccessCurrentAsync, () => CanManageCurrent);
         ManageAccessForNodeCommand = new AsyncRelayCommand<FolderNode?>(ManageAccessForNodeAsync);
         ManageAccessForEntryCommand = new AsyncRelayCommand<FileEntryViewModel?>(ManageAccessForEntryAsync);
+        ShareCommand = new AsyncRelayCommand<FileEntryViewModel?>(ShareAsync);
         CopyPathCommand = new RelayCommand<FileEntryViewModel?>(CopyPath);
         CopyCurrentPathCommand = new RelayCommand(() => CopyToClipboard(CurrentPath));
         ToggleViewCommand = new RelayCommand(() => IsGridView = !IsGridView);
@@ -74,6 +75,52 @@ public sealed partial class FilesViewModel : ObservableObject
         SignalUploadPanelCommand = new RelayCommand(() => IsUploadPanelOpen = !IsUploadPanelOpen);
         SignalDownloadPanelCommand = new RelayCommand(() => IsDownloadPanelOpen = !IsDownloadPanelOpen);
         CancelOpenCommand = new RelayCommand(() => _openCts?.Cancel());
+        ZoomInCommand = new RelayCommand(() => Zoom = Math.Min(MaxZoom, Zoom + 0.15));
+        ZoomOutCommand = new RelayCommand(() => Zoom = Math.Max(MinZoom, Zoom - 0.15));
+
+        _zoom = Math.Clamp(configService.Current.GridZoom <= 0 ? 1.0 : configService.Current.GridZoom, MinZoom, MaxZoom);
+
+        // La connexion serveur a changé (édition dans les Paramètres) : on recharge l'arbre.
+        _configService.ConnectionChanged += OnConnectionChanged;
+    }
+
+    // ----- Zoom de la vue grille -----
+    private const double MinZoom = 0.6;
+    private const double MaxZoom = 2.0;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(GridItemWidth))]
+    [NotifyPropertyChangedFor(nameof(GridItemHeight))]
+    [NotifyPropertyChangedFor(nameof(GridGlyphSize))]
+    [NotifyPropertyChangedFor(nameof(ZoomPercent))]
+    private double _zoom = 1.0;
+
+    public double GridItemWidth => Math.Round(158 * Zoom);
+    public double GridItemHeight => Math.Round(150 * Zoom);
+    public double GridGlyphSize => Math.Round(46 * Zoom);
+    public string ZoomPercent => $"{Zoom * 100:0} %";
+
+    partial void OnZoomChanged(double value)
+    {
+        var c = _configService.Current;
+        c.GridZoom = value;
+        _configService.Save(c);
+    }
+
+    private void OnConnectionChanged() => App.Dispatch(() => _ = ReloadForConnectionChangeAsync());
+
+    private async Task ReloadForConnectionChangeAsync()
+    {
+        _backHistory.Clear();
+        _forwardHistory.Clear();
+        try
+        {
+            await InitializeAsync();
+        }
+        catch (Exception ex)
+        {
+            _notify.Error("Rechargement impossible", ex.Message);
+        }
     }
 
     // ----- Commandes -----
@@ -92,6 +139,7 @@ public sealed partial class FilesViewModel : ObservableObject
     public AsyncRelayCommand ManageAccessCommand { get; }
     public AsyncRelayCommand<FolderNode?> ManageAccessForNodeCommand { get; }
     public AsyncRelayCommand<FileEntryViewModel?> ManageAccessForEntryCommand { get; }
+    public AsyncRelayCommand<FileEntryViewModel?> ShareCommand { get; }
     public RelayCommand<FileEntryViewModel?> CopyPathCommand { get; }
     public RelayCommand CopyCurrentPathCommand { get; }
     public RelayCommand ToggleViewCommand { get; }
@@ -100,6 +148,8 @@ public sealed partial class FilesViewModel : ObservableObject
     public RelayCommand SignalUploadPanelCommand { get; }
     public RelayCommand SignalDownloadPanelCommand { get; }
     public RelayCommand CancelOpenCommand { get; }
+    public RelayCommand ZoomInCommand { get; }
+    public RelayCommand ZoomOutCommand { get; }
 
     // ----- Collections -----
     public ObservableCollection<FolderNode> FolderTree { get; } = new();
@@ -156,10 +206,11 @@ public sealed partial class FilesViewModel : ObservableObject
             ? FtpPathUtil.Normalize(_configService.Current.FtpRootPath)
             : FolderTree.FirstOrDefault()?.FtpPath ?? FtpPathUtil.Normalize(_configService.Current.FtpRootPath);
 
-        // Priorité : dernier chemin visité -> chemin par défaut (admin) -> automatique.
-        // Un candidat n'est retenu que s'il existe encore sur le FTP et reste accessible.
+        // Priorité : chemin par défaut (fixé par un admin) -> automatique. Le dernier chemin
+        // visité n'est volontairement PAS restauré à l'ouverture : avec plusieurs connexions
+        // FTP il peut appartenir à un autre serveur, et l'arborescence doit repartir de zéro.
         var start = auto;
-        foreach (var candidate in new[] { _session.CurrentUser?.LastPath, _session.CurrentUser?.DefaultPath })
+        foreach (var candidate in new[] { _session.CurrentUser?.DefaultPath })
         {
             if (string.IsNullOrWhiteSpace(candidate)) continue;
             var path = FtpPathUtil.Normalize(candidate);
@@ -185,20 +236,37 @@ public sealed partial class FilesViewModel : ObservableObject
         {
             FolderTree.Clear();
 
+            var rootPath = FtpPathUtil.Normalize(_configService.Current.FtpRootPath);
+            var rootListing = await TryListDirectoriesAsync(rootPath);
+
+            // Dossiers réellement présents à la racine du FTP courant (multi-connexions :
+            // les dossiers enregistrés en base peuvent appartenir à un autre serveur).
+            var existingRoots = rootListing?.Select(e => e.FullPath).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            bool ExistsOnCurrentFtp(string ftpPath)
+            {
+                if (existingRoots is null) return true; // FTP injoignable : on n'élague pas
+                var top = TopSegmentUnder(rootPath, FtpPathUtil.Normalize(ftpPath));
+                return top is not null && existingRoots.Contains(top);
+            }
+
             if (_session.IsAdmin)
             {
-                var all = await _db.GetAllFoldersAsync();
+                // _accessible reste alimenté depuis la base (sert aux contrôles d'accès),
+                // mais l'ARBRE affiche la vraie structure du disque, chargée paresseusement.
+                var all = (await _db.GetAllFoldersAsync()).Where(f => ExistsOnCurrentFtp(f.FtpPath)).ToList();
                 _accessible = all.Select(f => (f, FolderAccessLevel.Owner)).ToList();
 
-                // Racine synthétique = racine FTP, pour parcourir tout le disque.
-                var rootPath = FtpPathUtil.Normalize(_configService.Current.FtpRootPath);
                 var rootNode = new FolderNode(new Folder { Id = 0, Name = "Tout le drive", FtpPath = rootPath }, FolderAccessLevel.Owner);
-                BuildChildren(rootNode, all.ToList(), null);
+                if (rootListing is not null)
+                    foreach (var dir in rootListing.OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase))
+                        rootNode.Children.Add(CreateFtpNode(dir.Name, dir.FullPath));
                 FolderTree.Add(rootNode);
             }
             else
             {
-                _accessible = (await _db.GetAccessibleFoldersAsync(_session.UserId)).ToList();
+                _accessible = (await _db.GetAccessibleFoldersAsync(_session.UserId))
+                    .Where(a => ExistsOnCurrentFtp(a.Folder.FtpPath)).ToList();
                 var accessibleIds = _accessible.Select(a => a.Folder.Id).ToHashSet();
                 var folders = _accessible.Select(a => a.Folder).ToList();
 
@@ -219,6 +287,70 @@ public sealed partial class FilesViewModel : ObservableObject
         }
     }
 
+    /// <summary>Sous-dossiers d'un chemin FTP, ou null si le listing échoue.</summary>
+    private async Task<IReadOnlyList<RemoteEntry>?> TryListDirectoriesAsync(string path)
+    {
+        try
+        {
+            var listing = await _ftp.ListAsync(path);
+            return listing.Where(e => e.IsDirectory).ToList();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Crée un nœud d'arbre reflétant un vrai dossier du FTP, dont les enfants sont
+    /// chargés à la demande au premier dépliage.
+    /// </summary>
+    private FolderNode CreateFtpNode(string name, string path)
+    {
+        var node = new FolderNode(new Folder { Id = 0, Name = name, FtpPath = path }, FolderAccessLevel.Owner)
+        {
+            ChildrenLoaded = false,
+            IsExpanded = false
+        };
+        node.Children.Add(FolderNode.CreatePlaceholder());
+        node.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(FolderNode.IsExpanded) && node.IsExpanded && !node.ChildrenLoaded)
+                _ = LoadFtpChildrenAsync(node);
+        };
+        return node;
+    }
+
+    private async Task LoadFtpChildrenAsync(FolderNode node)
+    {
+        node.ChildrenLoaded = true;
+        var listing = await TryListDirectoriesAsync(node.FtpPath);
+        if (listing is null)
+        {
+            // Échec : on referme et on laisse la possibilité de réessayer au prochain dépliage.
+            node.ChildrenLoaded = false;
+            node.IsExpanded = false;
+            return;
+        }
+
+        node.Children.Clear();
+        foreach (var dir in listing.OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase))
+            node.Children.Add(CreateFtpNode(dir.Name, dir.FullPath));
+    }
+
+    /// <summary>
+    /// Premier segment de <paramref name="path"/> sous <paramref name="rootPath"/>
+    /// (ex. racine "/" et chemin "/Disque/User/Doc" -> "/Disque"), ou null si hors racine.
+    /// </summary>
+    private static string? TopSegmentUnder(string rootPath, string path)
+    {
+        var root = rootPath == "/" ? string.Empty : rootPath;
+        if (string.Equals(path, rootPath, StringComparison.OrdinalIgnoreCase)) return null;
+        if (!path.StartsWith(root + "/", StringComparison.OrdinalIgnoreCase)) return null;
+        var segment = path[(root.Length + 1)..].Split('/')[0];
+        return root + "/" + segment;
+    }
+
     private void BuildChildren(FolderNode parent, List<Folder> all, int? parentId)
     {
         foreach (var child in all.Where(f => f.ParentId == parentId).OrderBy(f => f.Name))
@@ -233,7 +365,7 @@ public sealed partial class FilesViewModel : ObservableObject
 
     partial void OnSelectedFolderNodeChanged(FolderNode? value)
     {
-        if (value is null) return;
+        if (value is null || value.IsPlaceholder || string.IsNullOrEmpty(value.FtpPath)) return;
         _ = NavigateToAsync(value.FtpPath);
     }
 
@@ -1024,6 +1156,54 @@ public sealed partial class FilesViewModel : ObservableObject
     private void CopyPath(FileEntryViewModel? entry)
     {
         if (entry is not null) CopyToClipboard(entry.FullPath);
+    }
+
+    /// <summary>
+    /// Crée un lien de partage public pour un fichier (aperçu ou téléchargement, avec
+    /// expiration), l'enregistre en base et copie l'URL dans le presse-papiers.
+    /// </summary>
+    private async Task ShareAsync(FileEntryViewModel? entry)
+    {
+        if (entry is null || entry.IsDirectory) return;
+
+        var baseUrl = _configService.Current.ShareBaseUrl?.Trim();
+        if (string.IsNullOrWhiteSpace(baseUrl))
+        {
+            _notify.Warning("Partage non configuré",
+                "Renseignez l'URL du serveur de partage dans Paramètres (section Partage).");
+            return;
+        }
+
+        var dialog = new ShareDialog(entry.Name);
+        App.SetOwner(dialog);
+        if (dialog.ShowDialog() != true) return;
+
+        try
+        {
+            var token = GenerateShareToken();
+            await _db.EnsureSharesTableAsync();
+            await _db.CreateShareAsync(token, entry.FullPath, entry.Name, dialog.Mode, _session.UserId, dialog.ExpiresAtUtc);
+
+            // Lien personnalisé par utilisateur : /u/<identifiant>/<jeton>. Le jeton reste
+            // la clé unique ; l'identifiant rend l'URL plus lisible (on voit qui partage).
+            var userSegment = Uri.EscapeDataString(
+                string.IsNullOrWhiteSpace(_session.UserName) ? "user" : _session.UserName);
+            var url = $"{baseUrl.TrimEnd('/')}/u/{userSegment}/{token}";
+            CopyToClipboard(url);
+            _notify.Success("Lien de partage créé",
+                $"{(dialog.Mode == "download" ? "Téléchargement" : "Aperçu")} — copié dans le presse-papiers.");
+        }
+        catch (Exception ex)
+        {
+            _notify.Error("Partage impossible", ex.Message);
+        }
+    }
+
+    private static string GenerateShareToken()
+    {
+        // 16 octets aléatoires -> base64 URL-safe (~22 caractères).
+        var bytes = System.Security.Cryptography.RandomNumberGenerator.GetBytes(16);
+        return Convert.ToBase64String(bytes).Replace('+', '-').Replace('/', '_').TrimEnd('=');
     }
 
     private void CopyToClipboard(string path)

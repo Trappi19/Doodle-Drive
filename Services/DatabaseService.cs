@@ -299,4 +299,57 @@ public sealed class DatabaseService
         await using var conn = CreateConnection();
         await conn.ExecuteAsync(new CommandDefinition(sql, new { folderId, userId }, cancellationToken: ct));
     }
+
+    // =====================================================================
+    //  Liens de partage public (servis par DoodleDrive.ShareServer)
+    // =====================================================================
+
+    /// <summary>Crée la table des partages si elle n'existe pas (le serveur la crée aussi de son côté).</summary>
+    public async Task EnsureSharesTableAsync(CancellationToken ct = default)
+    {
+        const string sql = @"
+            CREATE TABLE IF NOT EXISTS shares (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                token VARCHAR(32) NOT NULL UNIQUE,
+                ftp_path VARCHAR(1024) NOT NULL,
+                file_name VARCHAR(512) NOT NULL,
+                mode ENUM('download','preview') NOT NULL DEFAULT 'download',
+                created_by INT NULL,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                expires_at DATETIME NULL,
+                revoked TINYINT(1) NOT NULL DEFAULT 0,
+                view_count INT NOT NULL DEFAULT 0
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;";
+        await using var conn = CreateConnection();
+        await conn.ExecuteAsync(new CommandDefinition(sql, cancellationToken: ct));
+    }
+
+    /// <summary>Enregistre un lien de partage. <paramref name="mode"/> = "download" ou "preview".</summary>
+    public async Task CreateShareAsync(
+        string token, string ftpPath, string fileName, string mode, int createdBy,
+        DateTime? expiresAtUtc, CancellationToken ct = default)
+    {
+        const string sql = @"INSERT INTO shares (token, ftp_path, file_name, mode, created_by, expires_at)
+                             VALUES (@token, @ftpPath, @fileName, @mode, @createdBy, @expiresAt);";
+        await using var conn = CreateConnection();
+        await conn.ExecuteAsync(new CommandDefinition(
+            sql, new { token, ftpPath, fileName, mode, createdBy, expiresAt = expiresAtUtc }, cancellationToken: ct));
+    }
+
+    public async Task<IReadOnlyList<ShareLink>> GetSharesAsync(int? createdBy, CancellationToken ct = default)
+    {
+        var sql = @"SELECT token, ftp_path, file_name, mode, created_at, expires_at, revoked, view_count
+                    FROM shares" + (createdBy is null ? "" : " WHERE created_by = @createdBy") +
+                  " ORDER BY created_at DESC;";
+        await using var conn = CreateConnection();
+        var rows = await conn.QueryAsync<ShareLink>(new CommandDefinition(sql, new { createdBy }, cancellationToken: ct));
+        return rows.ToList();
+    }
+
+    public async Task RevokeShareAsync(string token, CancellationToken ct = default)
+    {
+        const string sql = "UPDATE shares SET revoked = 1 WHERE token = @token;";
+        await using var conn = CreateConnection();
+        await conn.ExecuteAsync(new CommandDefinition(sql, new { token }, cancellationToken: ct));
+    }
 }

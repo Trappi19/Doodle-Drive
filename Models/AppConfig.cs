@@ -25,6 +25,13 @@ public sealed class AppConfig
     /// <summary>FTPS explicite si le serveur le supporte, sinon FTP simple.</summary>
     public bool FtpUseTls { get; set; }
 
+    // ----- Connexions serveur enregistrées (multi-serveurs) -----
+    /// <summary>Connexions nommées entre lesquelles on peut basculer.</summary>
+    public List<ConnectionProfile> Connections { get; set; } = new();
+
+    /// <summary>Nom de la connexion actuellement active (parmi <see cref="Connections"/>).</summary>
+    public string? ActiveConnectionName { get; set; }
+
     // ----- Session mémorisée (optionnelle) -----
     public bool RememberMe { get; set; }
     public string RememberedUsername { get; set; } = string.Empty;
@@ -40,6 +47,15 @@ public sealed class AppConfig
     public string DefaultView { get; set; } = "Grid";
 
     public string? LastDownloadFolder { get; set; }
+
+    /// <summary>Facteur de zoom de la vue grille (1.0 = taille par défaut).</summary>
+    public double GridZoom { get; set; } = 1.0;
+
+    /// <summary>
+    /// URL publique du serveur de partage (ex. https://debianregion.xxxx.ts.net via Tailscale
+    /// Funnel). Sert à construire les liens partageables. Vide = partage désactivé.
+    /// </summary>
+    public string ShareBaseUrl { get; set; } = string.Empty;
 
     /// <summary>
     /// Au lancement automatique avec Windows : ouvrir aussi la fenêtre. Si faux (défaut),

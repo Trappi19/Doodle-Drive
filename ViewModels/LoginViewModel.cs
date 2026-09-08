@@ -44,7 +44,15 @@ public sealed partial class LoginViewModel : ObservableObject
         TestConnectionCommand = new AsyncRelayCommand(TestConnectionAsync, () => !IsBusy);
         UnlockServerCommand = new AsyncRelayCommand(UnlockServerAsync, () => !IsBusy);
         ResetServerCommand = new RelayCommand(ResetServer);
+        SaveConnectionCommand = new RelayCommand(SaveConnection);
+        DeleteConnectionCommand = new RelayCommand(DeleteConnection);
+
+        foreach (var name in configService.ConnectionNames) SavedConnections.Add(name);
+        _selectedConnection = configService.Current.ActiveConnectionName;
     }
+
+    /// <summary>Connexions serveur enregistrées (pour basculer entre plusieurs serveurs).</summary>
+    public System.Collections.ObjectModel.ObservableCollection<string> SavedConnections { get; } = new();
 
     public event Action? LoginSucceeded;
 
@@ -52,6 +60,8 @@ public sealed partial class LoginViewModel : ObservableObject
     public AsyncRelayCommand TestConnectionCommand { get; }
     public AsyncRelayCommand UnlockServerCommand { get; }
     public RelayCommand ResetServerCommand { get; }
+    public RelayCommand SaveConnectionCommand { get; }
+    public RelayCommand DeleteConnectionCommand { get; }
 
     [ObservableProperty] private string _username;
     [ObservableProperty] private string _passwordInput = string.Empty;
@@ -84,6 +94,11 @@ public sealed partial class LoginViewModel : ObservableObject
     [ObservableProperty] private string _ftpPassword;
     [ObservableProperty] private string _ftpRootPath;
     [ObservableProperty] private bool _ftpUseTls;
+
+    // --- Connexions enregistrées (multi-serveurs) ---
+    [ObservableProperty] private string? _selectedConnection;
+    [ObservableProperty] private string _newConnectionName = string.Empty;
+    private bool _applyingConnection;
 
     public bool HasStatus => !string.IsNullOrEmpty(StatusMessage);
 
@@ -218,15 +233,63 @@ public sealed partial class LoginViewModel : ObservableObject
     private void ResetServer()
     {
         _configService.ResetServerConfig();
-
-        var c = _configService.Current;
-        DbHost = c.DbHost; DbPort = c.DbPort; DbName = c.DbName; DbUser = c.DbUser; DbPassword = c.DbPassword;
-        FtpHost = c.FtpHost; FtpPort = c.FtpPort; FtpUser = c.FtpUser; FtpPassword = c.FtpPassword;
-        FtpRootPath = c.FtpRootPath; FtpUseTls = c.FtpUseTls;
+        LoadServerFieldsFromConfig();
 
         IsServerUnlocked = true;
         IsServerPanelOpen = true;
         SetStatus("Infos de connexion réinitialisées. Saisissez ou importez une nouvelle configuration.", false);
+    }
+
+    private void LoadServerFieldsFromConfig()
+    {
+        var c = _configService.Current;
+        DbHost = c.DbHost; DbPort = c.DbPort; DbName = c.DbName; DbUser = c.DbUser; DbPassword = c.DbPassword;
+        FtpHost = c.FtpHost; FtpPort = c.FtpPort; FtpUser = c.FtpUser; FtpPassword = c.FtpPassword;
+        FtpRootPath = c.FtpRootPath; FtpUseTls = c.FtpUseTls;
+    }
+
+    /// <summary>Bascule sur une connexion enregistrée : ses identifiants remplissent les champs.</summary>
+    partial void OnSelectedConnectionChanged(string? value)
+    {
+        if (_applyingConnection || string.IsNullOrEmpty(value)) return;
+        if (!_configService.ApplyConnection(value)) return;
+        LoadServerFieldsFromConfig();
+        SetStatus($"Connexion « {value} » chargée.", false);
+    }
+
+    /// <summary>Enregistre les identifiants serveur saisis sous le nom donné.</summary>
+    private void SaveConnection()
+    {
+        var name = NewConnectionName.Trim();
+        if (string.IsNullOrEmpty(name))
+        {
+            SetStatus("Donnez un nom à la connexion avant de l'enregistrer.", true);
+            return;
+        }
+
+        ApplyConfig(); // persiste les champs saisis dans la config active
+        _configService.SaveCurrentAsConnection(name);
+        RefreshConnections(name);
+        NewConnectionName = string.Empty;
+        SetStatus($"Connexion « {name} » enregistrée.", false);
+    }
+
+    private void DeleteConnection()
+    {
+        var name = SelectedConnection;
+        if (string.IsNullOrEmpty(name)) return;
+        _configService.DeleteConnection(name);
+        RefreshConnections(null);
+        SetStatus($"Connexion « {name} » supprimée.", false);
+    }
+
+    private void RefreshConnections(string? select)
+    {
+        _applyingConnection = true;
+        SavedConnections.Clear();
+        foreach (var n in _configService.ConnectionNames) SavedConnections.Add(n);
+        SelectedConnection = select;
+        _applyingConnection = false;
     }
 
     private async Task TestConnectionAsync()

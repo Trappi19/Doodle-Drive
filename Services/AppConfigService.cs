@@ -26,6 +26,16 @@ public sealed class AppConfigService
     /// <summary>Configuration active en mémoire.</summary>
     public AppConfig Current { get; private set; }
 
+    /// <summary>Déclenché quand la connexion serveur active change (bascule, reset, import).</summary>
+    public event Action? ConnectionChanged;
+
+    /// <summary>Signale un changement de connexion (à appeler après modification des identifiants serveur).</summary>
+    public void NotifyConnectionChanged() => ConnectionChanged?.Invoke();
+
+    /// <summary>Noms des connexions enregistrées.</summary>
+    public IReadOnlyList<string> ConnectionNames =>
+        Current.Connections.Select(p => p.Name).ToList();
+
     private AppConfig Load()
     {
         var config = new AppConfig();
@@ -40,6 +50,11 @@ public sealed class AppConfigService
                 config.DbPassword = Unprotect(config.DbPassword);
                 config.FtpPassword = Unprotect(config.FtpPassword);
                 config.RememberedPassword = Unprotect(config.RememberedPassword);
+                foreach (var profile in config.Connections)
+                {
+                    profile.DbPassword = Unprotect(profile.DbPassword);
+                    profile.FtpPassword = Unprotect(profile.FtpPassword);
+                }
             }
         }
         catch
@@ -48,8 +63,11 @@ public sealed class AppConfigService
             config = new AppConfig();
         }
 
-        // Les valeurs du fichier .env (identifiants privés, hors dépôt) ont priorité.
-        ApplyEnvOverrides(config);
+        // Le .env ne sert qu'à amorcer une config vierge (premier lancement en dev).
+        // Une fois des identifiants enregistrés, il ne les écrase plus : sinon changer
+        // de connexion serait annulé à chaque relance de l'app.
+        if (string.IsNullOrWhiteSpace(config.DbUser) && string.IsNullOrWhiteSpace(config.DbPassword))
+            ApplyEnvOverrides(config);
         return config;
     }
 
@@ -93,6 +111,14 @@ public sealed class AppConfigService
             toStore.DbPassword = Protect(config.DbPassword);
             toStore.FtpPassword = Protect(config.FtpPassword);
             toStore.RememberedPassword = Protect(config.RememberedPassword);
+            // Copie profonde des connexions avec mots de passe chiffrés (Clone() est superficiel).
+            toStore.Connections = config.Connections.Select(p =>
+            {
+                var q = p.Clone();
+                q.DbPassword = Protect(p.DbPassword);
+                q.FtpPassword = Protect(p.FtpPassword);
+                return q;
+            }).ToList();
             File.WriteAllText(_filePath, JsonSerializer.Serialize(toStore, JsonOptions));
         }
         catch
@@ -116,6 +142,51 @@ public sealed class AppConfigService
         c.DbUser = defaults.DbUser; c.DbPassword = defaults.DbPassword;
         c.FtpHost = defaults.FtpHost; c.FtpPort = defaults.FtpPort; c.FtpUser = defaults.FtpUser;
         c.FtpPassword = defaults.FtpPassword; c.FtpRootPath = defaults.FtpRootPath; c.FtpUseTls = defaults.FtpUseTls;
+        c.ActiveConnectionName = null;
+        Save(c);
+    }
+
+    // ----- Connexions serveur enregistrées -----
+
+    /// <summary>
+    /// Enregistre les identifiants serveur courants sous un nom (crée ou remplace un profil
+    /// existant du même nom), et en fait la connexion active.
+    /// </summary>
+    public void SaveCurrentAsConnection(string name)
+    {
+        name = name.Trim();
+        if (string.IsNullOrEmpty(name)) return;
+
+        var c = Current;
+        var profile = ConnectionProfile.FromConfig(name, c);
+        var existing = c.Connections.FindIndex(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
+        if (existing >= 0) c.Connections[existing] = profile;
+        else c.Connections.Add(profile);
+
+        c.ActiveConnectionName = name;
+        Save(c);
+    }
+
+    /// <summary>Bascule sur une connexion enregistrée : applique ses identifiants et la rend active.</summary>
+    public bool ApplyConnection(string name)
+    {
+        var c = Current;
+        var profile = c.Connections.FirstOrDefault(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
+        if (profile is null) return false;
+
+        profile.ApplyTo(c);
+        c.ActiveConnectionName = profile.Name;
+        Save(c);
+        return true;
+    }
+
+    /// <summary>Supprime une connexion enregistrée (n'affecte pas les identifiants actuellement actifs).</summary>
+    public void DeleteConnection(string name)
+    {
+        var c = Current;
+        c.Connections.RemoveAll(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
+        if (string.Equals(c.ActiveConnectionName, name, StringComparison.OrdinalIgnoreCase))
+            c.ActiveConnectionName = null;
         Save(c);
     }
 

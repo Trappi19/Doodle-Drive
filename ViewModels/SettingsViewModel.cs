@@ -33,6 +33,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         _theme = c.Theme; _defaultView = c.DefaultView;
         _launchAtStartup = StartupRegistration.IsEnabled();
         _openWindowOnStartup = c.OpenWindowOnStartup;
+        _shareBaseUrl = c.ShareBaseUrl;
 
         SaveCommand = new RelayCommand(Save);
         TestDbCommand = new AsyncRelayCommand(TestDbAsync, () => !IsBusy);
@@ -68,6 +69,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private string _defaultView;
     [ObservableProperty] private bool _launchAtStartup;
     [ObservableProperty] private bool _openWindowOnStartup;
+    [ObservableProperty] private string _shareBaseUrl;
     [ObservableProperty] private bool _isBusy;
 
     [ObservableProperty] private string _theme;
@@ -123,6 +125,15 @@ public sealed partial class SettingsViewModel : ObservableObject
     private void Save()
     {
         var c = _configService.Current;
+
+        // Détecte un changement des identifiants serveur pour rafraîchir l'arbre après coup.
+        var connectionChanged =
+            c.DbHost != DbHost.Trim() || c.DbPort != DbPort || c.DbName != DbName.Trim() ||
+            c.DbUser != DbUser.Trim() || c.DbPassword != DbPassword ||
+            c.FtpHost != FtpHost.Trim() || c.FtpPort != FtpPort || c.FtpUser != FtpUser.Trim() ||
+            c.FtpPassword != FtpPassword || c.FtpRootPath != FtpPathUtil.Normalize(FtpRootPath) ||
+            c.FtpUseTls != FtpUseTls;
+
         c.DbHost = DbHost.Trim(); c.DbPort = DbPort; c.DbName = DbName.Trim();
         c.DbUser = DbUser.Trim(); c.DbPassword = DbPassword;
         c.FtpHost = FtpHost.Trim(); c.FtpPort = FtpPort; c.FtpUser = FtpUser.Trim();
@@ -130,8 +141,11 @@ public sealed partial class SettingsViewModel : ObservableObject
         c.FtpUseTls = FtpUseTls;
         c.Theme = Theme; c.DefaultView = DefaultView;
         c.OpenWindowOnStartup = OpenWindowOnStartup;
+        c.ShareBaseUrl = ShareBaseUrl?.Trim() ?? string.Empty;
         _configService.Save(c);
         _notify.Success("Paramètres enregistrés");
+
+        if (connectionChanged) _configService.NotifyConnectionChanged();
     }
 
     /// <summary>

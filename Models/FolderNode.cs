@@ -26,6 +26,15 @@ public sealed partial class FolderNode : ObservableObject
 
     public ObservableCollection<FolderNode> Children { get; } = new();
 
+    /// <summary>Faux si les enfants doivent être chargés depuis le FTP au dépliage (nœud paresseux).</summary>
+    public bool ChildrenLoaded { get; set; } = true;
+
+    /// <summary>Nœud factice affiché sous un nœud paresseux pas encore déplié.</summary>
+    public bool IsPlaceholder => Folder.Id == -1;
+
+    public static FolderNode CreatePlaceholder() =>
+        new(new Folder { Id = -1, Name = "Chargement…", FtpPath = string.Empty }, FolderAccessLevel.Owner);
+
     [ObservableProperty]
     private bool _isExpanded = true;
 

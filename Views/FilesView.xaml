@@ -23,6 +23,10 @@
             <MenuItem Header="Copier le chemin"
                       Command="{Binding PlacementTarget.Tag.CopyPathCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                       CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+            <MenuItem Header="Partager par lien…"
+                      Visibility="{Binding PlacementTarget.DataContext.IsDirectory, RelativeSource={RelativeSource AncestorType=ContextMenu}, Converter={StaticResource InverseBoolToVis}}"
+                      Command="{Binding PlacementTarget.Tag.ShareCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
             <Separator />
             <MenuItem Header="Renommer"
                       Command="{Binding PlacementTarget.Tag.RenameCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
@@ -38,7 +42,9 @@
 
         <!-- Carte d'un élément en vue grille -->
         <DataTemplate x:Key="GridItemTemplate" DataType="{x:Type vm:FileEntryViewModel}">
-            <Border Width="158" Height="150" CornerRadius="10" Margin="6" Padding="10"
+            <Border Width="{Binding DataContext.GridItemWidth, RelativeSource={RelativeSource AncestorType=ListBox}}"
+                    Height="{Binding DataContext.GridItemHeight, RelativeSource={RelativeSource AncestorType=ListBox}}"
+                    CornerRadius="10" Margin="6" Padding="10"
                     Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
                     Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=ListBox}}"
                     ContextMenu="{StaticResource EntryContextMenu}">
@@ -55,7 +61,8 @@
                     </Grid.RowDefinitions>
 
                     <Grid Grid.Row="0">
-                        <TextBlock Style="{StaticResource GlyphText}" Text="{Binding Glyph}" FontSize="46"
+                        <TextBlock Style="{StaticResource GlyphText}" Text="{Binding Glyph}"
+                                   FontSize="{Binding DataContext.GridGlyphSize, RelativeSource={RelativeSource AncestorType=ListBox}}"
                                    Foreground="{Binding AccentBrushKey, Converter={StaticResource KeyToBrush}}"
                                    Visibility="{Binding Thumbnail, Converter={StaticResource NullToVis}, ConverterParameter=invert}" />
                         <Border CornerRadius="8" ClipToBounds="True"
@@ -122,6 +129,21 @@
                         Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" />
 
             <StackPanel Grid.Column="2" Orientation="Horizontal">
+                <!-- Zoom (vue grille) -->
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,6,0"
+                            Visibility="{Binding IsGridView, Converter={StaticResource BoolToVis}}">
+                    <ui:Button Command="{Binding ZoomOutCommand}" Appearance="Secondary" Padding="6,2"
+                               ToolTip="Réduire">
+                        <TextBlock Style="{StaticResource GlyphText}" Text="&#xE71F;" FontSize="14" />
+                    </ui:Button>
+                    <TextBlock Text="{Binding ZoomPercent}" VerticalAlignment="Center" TextAlignment="Center"
+                               MinWidth="42" FontSize="12" Opacity="0.8" />
+                    <ui:Button Command="{Binding ZoomInCommand}" Appearance="Secondary" Padding="6,2"
+                               ToolTip="Agrandir">
+                        <TextBlock Style="{StaticResource GlyphText}" Text="&#xE710;" FontSize="14" />
+                    </ui:Button>
+                </StackPanel>
+
                 <Menu Background="Transparent" VerticalAlignment="Center">
                     <MenuItem ToolTip="Trier">
                         <MenuItem.Header>
@@ -296,18 +318,18 @@
                         </ListBox>
 
                         <!-- Vue liste -->
-                        <ListView x:Name="DetailList" ItemsSource="{Binding Entries}"
+                        <ui:ListView x:Name="DetailList" ItemsSource="{Binding Entries}"
                                   Background="Transparent" BorderThickness="0"
                                   Visibility="{Binding IsGridView, Converter={StaticResource InverseBoolToVis}}">
-                            <ListView.ItemContainerStyle>
-                                <Style TargetType="ListViewItem" BasedOn="{StaticResource ListViewItemStyle}">
+                            <ui:ListView.ItemContainerStyle>
+                                <Style TargetType="{x:Type ui:ListViewItem}" BasedOn="{StaticResource {x:Type ui:ListViewItem}}">
                                     <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay}" />
                                     <Setter Property="Tag" Value="{Binding DataContext, RelativeSource={RelativeSource AncestorType=ListView}}" />
                                     <Setter Property="ContextMenu" Value="{StaticResource EntryContextMenu}" />
                                     <EventSetter Event="MouseDoubleClick" Handler="DetailItem_OnDoubleClick" />
                                 </Style>
-                            </ListView.ItemContainerStyle>
-                            <ListView.View>
+                            </ui:ListView.ItemContainerStyle>
+                            <ui:ListView.View>
                                 <GridView>
                                     <GridViewColumn Width="380" Header="Nom">
                                         <GridViewColumn.CellTemplate>
@@ -325,8 +347,8 @@
                                     <GridViewColumn Width="110" Header="Taille" DisplayMemberBinding="{Binding SizeText}" />
                                     <GridViewColumn Width="150" Header="Type" DisplayMemberBinding="{Binding KindText}" />
                                 </GridView>
-                            </ListView.View>
-                        </ListView>
+                            </ui:ListView.View>
+                        </ui:ListView>
 
                         <!-- État vide -->
                         <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center"

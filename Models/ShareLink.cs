@@ -10,6 +10,9 @@ public sealed class ShareLink
     /// <summary>"download" ou "preview".</summary>
     public string Mode { get; init; } = "download";
 
+    /// <summary>Vrai si le partage est un dossier (page web navigable) plutôt qu'un fichier.</summary>
+    public bool IsDir { get; init; }
+
     public DateTime CreatedAt { get; init; }
     public DateTime? ExpiresAt { get; init; }
     public bool Revoked { get; init; }

@@ -1164,7 +1164,7 @@ public sealed partial class FilesViewModel : ObservableObject
     /// </summary>
     private async Task ShareAsync(FileEntryViewModel? entry)
     {
-        if (entry is null || entry.IsDirectory) return;
+        if (entry is null) return;
 
         var baseUrl = _configService.Current.ShareBaseUrl?.Trim();
         if (string.IsNullOrWhiteSpace(baseUrl))
@@ -1174,7 +1174,7 @@ public sealed partial class FilesViewModel : ObservableObject
             return;
         }
 
-        var dialog = new ShareDialog(entry.Name);
+        var dialog = new ShareDialog(entry.Name, entry.IsDirectory);
         App.SetOwner(dialog);
         if (dialog.ShowDialog() != true) return;
 
@@ -1182,7 +1182,7 @@ public sealed partial class FilesViewModel : ObservableObject
         {
             var token = GenerateShareToken();
             await _db.EnsureSharesTableAsync();
-            await _db.CreateShareAsync(token, entry.FullPath, entry.Name, dialog.Mode, _session.UserId, dialog.ExpiresAtUtc);
+            await _db.CreateShareAsync(token, entry.FullPath, entry.Name, dialog.Mode, entry.IsDirectory, _session.UserId, dialog.ExpiresAtUtc);
 
             // Lien personnalisé par utilisateur : /u/<identifiant>/<jeton>. Le jeton reste
             // la clé unique ; l'identifiant rend l'URL plus lisible (on voit qui partage).

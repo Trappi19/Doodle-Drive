@@ -94,6 +94,15 @@
                         </Button>
 
                         <Button Style="{StaticResource NavButton}"
+                                Command="{Binding NavigateSharesCommand}"
+                                Tag="{Binding IsSharesActive}">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource GlyphText}" Text="&#xE71B;" FontSize="18" Width="28" />
+                                <TextBlock Text="Mes partages" VerticalAlignment="Center" FontSize="14" />
+                            </StackPanel>
+                        </Button>
+
+                        <Button Style="{StaticResource NavButton}"
                                 Command="{Binding NavigateSettingsCommand}"
                                 Tag="{Binding IsSettingsActive}">
                             <StackPanel Orientation="Horizontal">

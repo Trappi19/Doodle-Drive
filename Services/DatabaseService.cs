@@ -307,13 +307,14 @@ public sealed class DatabaseService
     /// <summary>Crée la table des partages si elle n'existe pas (le serveur la crée aussi de son côté).</summary>
     public async Task EnsureSharesTableAsync(CancellationToken ct = default)
     {
-        const string sql = @"
+        const string createSql = @"
             CREATE TABLE IF NOT EXISTS shares (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 token VARCHAR(32) NOT NULL UNIQUE,
                 ftp_path VARCHAR(1024) NOT NULL,
                 file_name VARCHAR(512) NOT NULL,
                 mode ENUM('download','preview') NOT NULL DEFAULT 'download',
+                is_dir TINYINT(1) NOT NULL DEFAULT 0,
                 created_by INT NULL,
                 created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 expires_at DATETIME NULL,
@@ -321,24 +322,27 @@ public sealed class DatabaseService
                 view_count INT NOT NULL DEFAULT 0
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;";
         await using var conn = CreateConnection();
-        await conn.ExecuteAsync(new CommandDefinition(sql, cancellationToken: ct));
+        await conn.ExecuteAsync(new CommandDefinition(createSql, cancellationToken: ct));
+        // Migration pour les bases créées avant l'ajout du partage de dossiers.
+        await conn.ExecuteAsync(new CommandDefinition(
+            "ALTER TABLE shares ADD COLUMN IF NOT EXISTS is_dir TINYINT(1) NOT NULL DEFAULT 0;", cancellationToken: ct));
     }
 
     /// <summary>Enregistre un lien de partage. <paramref name="mode"/> = "download" ou "preview".</summary>
     public async Task CreateShareAsync(
-        string token, string ftpPath, string fileName, string mode, int createdBy,
+        string token, string ftpPath, string fileName, string mode, bool isDir, int createdBy,
         DateTime? expiresAtUtc, CancellationToken ct = default)
     {
-        const string sql = @"INSERT INTO shares (token, ftp_path, file_name, mode, created_by, expires_at)
-                             VALUES (@token, @ftpPath, @fileName, @mode, @createdBy, @expiresAt);";
+        const string sql = @"INSERT INTO shares (token, ftp_path, file_name, mode, is_dir, created_by, expires_at)
+                             VALUES (@token, @ftpPath, @fileName, @mode, @isDir, @createdBy, @expiresAt);";
         await using var conn = CreateConnection();
         await conn.ExecuteAsync(new CommandDefinition(
-            sql, new { token, ftpPath, fileName, mode, createdBy, expiresAt = expiresAtUtc }, cancellationToken: ct));
+            sql, new { token, ftpPath, fileName, mode, isDir, createdBy, expiresAt = expiresAtUtc }, cancellationToken: ct));
     }
 
     public async Task<IReadOnlyList<ShareLink>> GetSharesAsync(int? createdBy, CancellationToken ct = default)
     {
-        var sql = @"SELECT token, ftp_path, file_name, mode, created_at, expires_at, revoked, view_count
+        var sql = @"SELECT token, ftp_path, file_name, mode, is_dir, created_at, expires_at, revoked, view_count
                     FROM shares" + (createdBy is null ? "" : " WHERE created_by = @createdBy") +
                   " ORDER BY created_at DESC;";
         await using var conn = CreateConnection();

@@ -53,6 +53,9 @@
             <DataTemplate DataType="{x:Type vm:SettingsViewModel}">
                 <views:SettingsView />
             </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:SharesViewModel}">
+                <views:SharesView />
+            </DataTemplate>
 
             <!-- Style glyphe icône réutilisable -->
             <Style x:Key="GlyphText" TargetType="TextBlock">

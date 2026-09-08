@@ -6,10 +6,17 @@ namespace DoodleDrive.Views.Dialogs;
 
 public partial class ShareDialog : FluentWindow
 {
-    public ShareDialog(string fileName)
+    public ShareDialog(string fileName, bool isDirectory = false)
     {
         InitializeComponent();
-        FileNameText.Text = fileName;
+        FileNameText.Text = isDirectory ? $"📁 {fileName}" : fileName;
+
+        if (isDirectory)
+        {
+            Title = "Partager un dossier";
+            PreviewRadio.Content = "Consulter uniquement (parcourir et voir les fichiers)";
+            DownloadRadio.Content = "Autoriser le téléchargement des fichiers";
+        }
     }
 
     /// <summary>"preview" ou "download".</summary>

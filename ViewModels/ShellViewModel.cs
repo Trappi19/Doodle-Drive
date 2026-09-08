@@ -18,11 +18,13 @@ public sealed partial class ShellViewModel : ObservableObject
             services.Dialogs, services.Notifications, services.Session, services.Config);
         Settings = new SettingsViewModel(services.Config, services.Database, services.Ftp, services.Notifications, services.Session, services.Dialogs);
         Settings.SignOutRequested += () => SignedOut?.Invoke();
+        Shares = new SharesViewModel(services.Database, services.Notifications, services.Session, services.Config, services.Dialogs);
         if (services.Session.IsAdmin)
             Admin = new AdminViewModel(services.Database, services.Dialogs, services.Notifications, services.Session);
 
         NavigateFilesCommand = new AsyncRelayCommand(GoFilesAsync);
         NavigateAdminCommand = new AsyncRelayCommand(GoAdminAsync, () => IsAdmin);
+        NavigateSharesCommand = new AsyncRelayCommand(GoSharesAsync);
         NavigateSettingsCommand = new RelayCommand(GoSettings);
         SignOutCommand = new RelayCommand(() => SignedOut?.Invoke());
         DismissToastCommand = new RelayCommand<Toast?>(t => { if (t is not null) services.Notifications.Dismiss(t); });
@@ -34,6 +36,7 @@ public sealed partial class ShellViewModel : ObservableObject
 
     public FilesViewModel Files { get; }
     public SettingsViewModel Settings { get; }
+    public SharesViewModel Shares { get; }
     public AdminViewModel? Admin { get; }
 
     public ObservableCollection<Toast> Toasts => _services.Notifications.Toasts;
@@ -46,15 +49,18 @@ public sealed partial class ShellViewModel : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsFilesActive))]
     [NotifyPropertyChangedFor(nameof(IsAdminActive))]
+    [NotifyPropertyChangedFor(nameof(IsSharesActive))]
     [NotifyPropertyChangedFor(nameof(IsSettingsActive))]
     private ObservableObject _currentPage;
 
     public bool IsFilesActive => ReferenceEquals(CurrentPage, Files);
     public bool IsAdminActive => Admin is not null && ReferenceEquals(CurrentPage, Admin);
+    public bool IsSharesActive => ReferenceEquals(CurrentPage, Shares);
     public bool IsSettingsActive => ReferenceEquals(CurrentPage, Settings);
 
     public AsyncRelayCommand NavigateFilesCommand { get; }
     public AsyncRelayCommand NavigateAdminCommand { get; }
+    public AsyncRelayCommand NavigateSharesCommand { get; }
     public RelayCommand NavigateSettingsCommand { get; }
     public RelayCommand SignOutCommand { get; }
     public RelayCommand<Toast?> DismissToastCommand { get; }
@@ -81,6 +87,12 @@ public sealed partial class ShellViewModel : ObservableObject
         if (Admin is null) return;
         CurrentPage = Admin;
         await Admin.LoadAsync();
+    }
+
+    private async Task GoSharesAsync()
+    {
+        CurrentPage = Shares;
+        await Shares.LoadAsync();
     }
 
     private void GoSettings() => CurrentPage = Settings;

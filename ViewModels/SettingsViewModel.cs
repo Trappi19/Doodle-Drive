@@ -1,4 +1,3 @@
-using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using DoodleDrive.Services;
@@ -6,38 +5,33 @@ using Wpf.Ui.Appearance;
 
 namespace DoodleDrive.ViewModels;
 
-/// <summary>Paramètres : connexions MariaDB/FTP, thème, vue par défaut.</summary>
+/// <summary>
+/// Paramètres : apparence, démarrage, adresse du serveur (API) et réinitialisation de la connexion.
+/// Depuis la migration API, l'app ne se connecte plus directement à MariaDB/FTP : ces sections
+/// ont été retirées (tout passe par l'URL du serveur ci-dessous).
+/// </summary>
 public sealed partial class SettingsViewModel : ObservableObject
 {
     private readonly AppConfigService _configService;
-    private readonly DatabaseService _db;
-    private readonly FtpService _ftp;
     private readonly NotificationService _notify;
     private readonly Session _session;
     private readonly DialogService _dialogs;
 
-    public SettingsViewModel(AppConfigService configService, DatabaseService db, FtpService ftp,
-        NotificationService notify, Session session, DialogService dialogs)
+    public SettingsViewModel(AppConfigService configService, NotificationService notify,
+        Session session, DialogService dialogs)
     {
         _configService = configService;
-        _db = db;
-        _ftp = ftp;
         _notify = notify;
         _session = session;
         _dialogs = dialogs;
 
         var c = configService.Current;
-        _dbHost = c.DbHost; _dbPort = c.DbPort; _dbName = c.DbName; _dbUser = c.DbUser; _dbPassword = c.DbPassword;
-        _ftpHost = c.FtpHost; _ftpPort = c.FtpPort; _ftpUser = c.FtpUser; _ftpPassword = c.FtpPassword;
-        _ftpRootPath = c.FtpRootPath; _ftpUseTls = c.FtpUseTls;
         _theme = c.Theme; _defaultView = c.DefaultView;
         _launchAtStartup = StartupRegistration.IsEnabled();
         _openWindowOnStartup = c.OpenWindowOnStartup;
         _shareBaseUrl = c.ShareBaseUrl;
 
         SaveCommand = new RelayCommand(Save);
-        TestDbCommand = new AsyncRelayCommand(TestDbAsync, () => !IsBusy);
-        TestFtpCommand = new AsyncRelayCommand(TestFtpAsync, () => !IsBusy);
         ResetConnectionCommand = new RelayCommand(ResetConnection);
     }
 
@@ -45,40 +39,19 @@ public sealed partial class SettingsViewModel : ObservableObject
     public event Action? SignOutRequested;
 
     public RelayCommand SaveCommand { get; }
-    public AsyncRelayCommand TestDbCommand { get; }
-    public AsyncRelayCommand TestFtpCommand { get; }
     public RelayCommand ResetConnectionCommand { get; }
 
-    /// <summary>Seul un admin peut voir/modifier la connexion serveur (les users ne choisissent pas leur point d'entrée).</summary>
+    /// <summary>Seul un admin peut voir/modifier l'adresse du serveur (les users ne choisissent pas leur point d'entrée).</summary>
     public bool IsAdmin => _session.IsAdmin;
 
     public IReadOnlyList<string> ThemeOptions { get; } = new[] { "System", "Light", "Dark" };
     public IReadOnlyList<string> ViewOptions { get; } = new[] { "Grid", "List" };
 
-    [ObservableProperty] private string _dbHost;
-    [ObservableProperty] private int _dbPort;
-    [ObservableProperty] private string _dbName;
-    [ObservableProperty] private string _dbUser;
-    [ObservableProperty] private string _dbPassword;
-    [ObservableProperty] private string _ftpHost;
-    [ObservableProperty] private int _ftpPort;
-    [ObservableProperty] private string _ftpUser;
-    [ObservableProperty] private string _ftpPassword;
-    [ObservableProperty] private string _ftpRootPath;
-    [ObservableProperty] private bool _ftpUseTls;
     [ObservableProperty] private string _defaultView;
     [ObservableProperty] private bool _launchAtStartup;
     [ObservableProperty] private bool _openWindowOnStartup;
     [ObservableProperty] private string _shareBaseUrl;
-    [ObservableProperty] private bool _isBusy;
-
     [ObservableProperty] private string _theme;
-
-    partial void OnIsBusyChanged(bool value)
-    {
-        TestDbCommand.NotifyCanExecuteChanged();
-        TestFtpCommand.NotifyCanExecuteChanged();
-    }
 
     partial void OnThemeChanged(string value) => ApplyTheme(value);
 
@@ -126,103 +99,30 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         var c = _configService.Current;
 
-        // Détecte un changement des identifiants serveur pour rafraîchir l'arbre après coup.
-        var connectionChanged =
-            c.DbHost != DbHost.Trim() || c.DbPort != DbPort || c.DbName != DbName.Trim() ||
-            c.DbUser != DbUser.Trim() || c.DbPassword != DbPassword ||
-            c.FtpHost != FtpHost.Trim() || c.FtpPort != FtpPort || c.FtpUser != FtpUser.Trim() ||
-            c.FtpPassword != FtpPassword || c.FtpRootPath != FtpPathUtil.Normalize(FtpRootPath) ||
-            c.FtpUseTls != FtpUseTls;
+        var serverChanged = c.ShareBaseUrl != (ShareBaseUrl?.Trim() ?? string.Empty);
 
-        c.DbHost = DbHost.Trim(); c.DbPort = DbPort; c.DbName = DbName.Trim();
-        c.DbUser = DbUser.Trim(); c.DbPassword = DbPassword;
-        c.FtpHost = FtpHost.Trim(); c.FtpPort = FtpPort; c.FtpUser = FtpUser.Trim();
-        c.FtpPassword = FtpPassword; c.FtpRootPath = FtpPathUtil.Normalize(FtpRootPath);
-        c.FtpUseTls = FtpUseTls;
         c.Theme = Theme; c.DefaultView = DefaultView;
         c.OpenWindowOnStartup = OpenWindowOnStartup;
         c.ShareBaseUrl = ShareBaseUrl?.Trim() ?? string.Empty;
         _configService.Save(c);
         _notify.Success("Paramètres enregistrés");
 
-        if (connectionChanged) _configService.NotifyConnectionChanged();
+        if (serverChanged) _configService.NotifyConnectionChanged();
     }
 
     /// <summary>
-    /// Exporte les paramètres serveur courants vers un fichier <c>.ddconfig</c> chiffré,
-    /// à importer sur les autres machines. Réservé aux administrateurs.
-    /// </summary>
-    public void ExportProfile(string path)
-    {
-        if (!IsAdmin) return;
-        try
-        {
-            // Enregistre d'abord d'éventuelles modifications en cours, puis exporte.
-            Save();
-            var c = _configService.Current;
-            File.WriteAllBytes(path, PortableConfig.Encrypt(PortableConfig.BuildEnvText(c)));
-            _notify.Success("Profil exporté",
-                "Fichier chiffré prêt à importer sur une autre machine (écran de connexion).");
-        }
-        catch (Exception ex)
-        {
-            _notify.Error("Export impossible", ex.Message);
-        }
-    }
-
-    /// <summary>
-    /// Réinitialise les infos de connexion serveur puis déconnecte l'utilisateur. Accessible
-    /// à tous (un utilisateur bloqué peut ainsi repartir de zéro et ré-importer une config).
+    /// Réinitialise l'adresse du serveur puis déconnecte l'utilisateur. Accessible à tous
+    /// (un utilisateur bloqué peut ainsi repartir de zéro).
     /// </summary>
     private void ResetConnection()
     {
         if (!_dialogs.Confirm(
                 "Réinitialiser la connexion",
-                "Les informations de connexion au serveur seront effacées et vous serez déconnecté. Continuer ?",
+                "L'adresse du serveur sera effacée et vous serez déconnecté. Continuer ?",
                 "Réinitialiser et déconnecter", destructive: true))
             return;
 
         _configService.ResetServerConfig();
         SignOutRequested?.Invoke();
-    }
-
-    private async Task TestDbAsync()
-    {
-        IsBusy = true;
-        try
-        {
-            Save();
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
-            await _db.TestConnectionAsync(cts.Token);
-            _notify.Success("MariaDB", "Connexion réussie.");
-        }
-        catch (Exception ex)
-        {
-            _notify.Error("MariaDB injoignable", ex.Message);
-        }
-        finally
-        {
-            IsBusy = false;
-        }
-    }
-
-    private async Task TestFtpAsync()
-    {
-        IsBusy = true;
-        try
-        {
-            Save();
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
-            await _ftp.TestConnectionAsync(cts.Token);
-            _notify.Success("FTP", "Connexion réussie.");
-        }
-        catch (Exception ex)
-        {
-            _notify.Error("FTP injoignable", ex.Message);
-        }
-        finally
-        {
-            IsBusy = false;
-        }
     }
 }

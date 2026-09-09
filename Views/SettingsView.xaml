@@ -56,82 +56,14 @@
                     </StackPanel>
                 </Border>
 
-                <!-- MariaDB -->
+                <!-- Serveur (admin) -->
                 <Border CornerRadius="10" Padding="18" Margin="0,0,0,14"
                         Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
                         Visibility="{Binding IsAdmin, Converter={StaticResource BoolToVis}}">
                     <StackPanel>
-                        <Grid Margin="0,0,0,12">
-                            <TextBlock Text="Base MariaDB" FontSize="16" FontWeight="SemiBold" />
-                            <ui:Button HorizontalAlignment="Right" Appearance="Secondary" Content="Tester"
-                                       Command="{Binding TestDbCommand}" />
-                        </Grid>
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="2*" />
-                                <ColumnDefinition Width="10" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <ui:TextBox Grid.Column="0" Text="{Binding DbHost}" PlaceholderText="Hôte" />
-                            <ui:TextBox Grid.Column="2" Text="{Binding DbPort}" PlaceholderText="Port" />
-                        </Grid>
-                        <ui:TextBox Text="{Binding DbName}" PlaceholderText="Base de données" Margin="0,8,0,0" />
-                        <ui:TextBox Text="{Binding DbUser}" PlaceholderText="Utilisateur SQL" Margin="0,8,0,0" />
-                        <PasswordBox h:PasswordHelper.BindPassword="True"
-                                     h:PasswordHelper.BoundPassword="{Binding DbPassword, Mode=TwoWay}"
-                                     MinHeight="38" Margin="0,8,0,0" />
-                    </StackPanel>
-                </Border>
-
-                <!-- FTP -->
-                <Border CornerRadius="10" Padding="18" Margin="0,0,0,14"
-                        Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
-                        Visibility="{Binding IsAdmin, Converter={StaticResource BoolToVis}}">
-                    <StackPanel>
-                        <Grid Margin="0,0,0,12">
-                            <TextBlock Text="Serveur FTP (disque dur)" FontSize="16" FontWeight="SemiBold" />
-                            <ui:Button HorizontalAlignment="Right" Appearance="Secondary" Content="Tester"
-                                       Command="{Binding TestFtpCommand}" />
-                        </Grid>
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="2*" />
-                                <ColumnDefinition Width="10" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <ui:TextBox Grid.Column="0" Text="{Binding FtpHost}" PlaceholderText="Hôte FTP" />
-                            <ui:TextBox Grid.Column="2" Text="{Binding FtpPort}" PlaceholderText="Port" />
-                        </Grid>
-                        <ui:TextBox Text="{Binding FtpUser}" PlaceholderText="Utilisateur FTP" Margin="0,8,0,0" />
-                        <PasswordBox h:PasswordHelper.BindPassword="True"
-                                     h:PasswordHelper.BoundPassword="{Binding FtpPassword, Mode=TwoWay}"
-                                     MinHeight="38" Margin="0,8,0,0" />
-                        <ui:TextBox Text="{Binding FtpRootPath}" PlaceholderText="Dossier racine (ex : /Disque dur)" Margin="0,8,0,0" />
-                        <CheckBox Content="Utiliser FTPS (TLS explicite)" IsChecked="{Binding FtpUseTls}" Margin="0,10,0,0" />
-                    </StackPanel>
-                </Border>
-
-                <!-- Déploiement (admin) -->
-                <Border CornerRadius="10" Padding="18" Margin="0,0,0,14"
-                        Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
-                        Visibility="{Binding IsAdmin, Converter={StaticResource BoolToVis}}">
-                    <StackPanel>
-                        <TextBlock Text="Déploiement" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,6" />
-                        <TextBlock TextWrapping="Wrap" Opacity="0.7" FontSize="12" Margin="0,0,0,12"
-                                   Text="Exporte les paramètres serveur dans un fichier chiffré (.ddconfig). Importez-le sur une autre machine depuis l'écran de connexion (bouton « Importer » ou glisser-déposer) sans communiquer les identifiants." />
-                        <ui:Button Click="OnExportProfileClick" Appearance="Secondary"
-                                   HorizontalAlignment="Left" Content="Exporter mon profil…" />
-                    </StackPanel>
-                </Border>
-
-                <!-- Partage par lien public (admin) -->
-                <Border CornerRadius="10" Padding="18" Margin="0,0,0,14"
-                        Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
-                        Visibility="{Binding IsAdmin, Converter={StaticResource BoolToVis}}">
-                    <StackPanel>
-                        <TextBlock Text="Partage par lien" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,6" />
+                        <TextBlock Text="Serveur" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,6" />
                         <TextBlock TextWrapping="Wrap" Opacity="0.7" FontSize="12" Margin="0,0,0,10"
-                                   Text="URL publique du serveur de partage (ex. via Tailscale Funnel). Sert à générer les liens de partage. Laisser vide pour désactiver le partage." />
+                                   Text="Adresse publique du serveur Doodle Drive (API + partages, ex. via Tailscale Funnel). C'est le point d'entrée unique de l'application : connexion, fichiers et liens de partage passent tous par cette URL." />
                         <ui:TextBox Text="{Binding ShareBaseUrl, Mode=TwoWay}" MinHeight="36"
                                     PlaceholderText="https://debianregion.xxxx.ts.net" />
                     </StackPanel>
@@ -143,7 +75,7 @@
                     <StackPanel>
                         <TextBlock Text="Connexion" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,6" />
                         <TextBlock TextWrapping="Wrap" Opacity="0.7" FontSize="12" Margin="0,0,0,12"
-                                   Text="Réinitialise les informations de connexion au serveur. Vous serez déconnecté immédiatement ; l'app redemandera (ou pourra ré-importer) une configuration." />
+                                   Text="Réinitialise l'adresse du serveur. Vous serez déconnecté immédiatement ; l'app redemandera l'URL du serveur et vos identifiants à la prochaine connexion." />
                         <ui:Button Command="{Binding ResetConnectionCommand}" Appearance="Secondary"
                                    HorizontalAlignment="Left" Content="Réinitialiser la connexion…" />
                     </StackPanel>

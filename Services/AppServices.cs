@@ -11,9 +11,10 @@ public sealed class AppServices
         Config = new AppConfigService();
         Notifications = new NotificationService();
         Session = new Session();
-        Database = new DatabaseService(Config);
-        Ftp = new FtpService(Config);
-        Auth = new AuthService(Database);
+        Api = new ApiClient(() => Config.Current.ShareBaseUrl);
+        Database = new DatabaseService(Api);
+        Ftp = new FtpService(Api);
+        Auth = new AuthService(Api);
         Thumbnails = new ThumbnailService(Ftp);
         Dialogs = new DialogService();
     }
@@ -21,6 +22,10 @@ public sealed class AppServices
     public AppConfigService Config { get; }
     public NotificationService Notifications { get; }
     public Session Session { get; }
+
+    /// <summary>Client de l'API REST (remplace progressivement DB/FTP directs — branche api-client).</summary>
+    public ApiClient Api { get; }
+
     public DatabaseService Database { get; }
     public FtpService Ftp { get; }
     public AuthService Auth { get; }

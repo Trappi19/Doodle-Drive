@@ -5,314 +5,61 @@ using DoodleDrive.Services;
 
 namespace DoodleDrive.ViewModels;
 
+/// <summary>
+/// Écran de connexion (version API) : adresse du serveur + identifiant + mot de passe.
+/// L'app ne parle plus qu'à l'API — plus aucun réglage MariaDB/FTP côté client.
+/// </summary>
 public sealed partial class LoginViewModel : ObservableObject
 {
     private readonly AppConfigService _configService;
     private readonly AuthService _auth;
-    private readonly DatabaseService _db;
-    private readonly FtpService _ftp;
     private readonly Session _session;
     private readonly NotificationService _notifications;
 
-    public LoginViewModel(
-        AppConfigService configService, AuthService auth, DatabaseService db,
-        FtpService ftp, Session session, NotificationService notifications)
+    public LoginViewModel(AppConfigService configService, AuthService auth, Session session, NotificationService notifications)
     {
         _configService = configService;
         _auth = auth;
-        _db = db;
-        _ftp = ftp;
         _session = session;
         _notifications = notifications;
 
         var c = configService.Current;
+        _serverUrl = c.ShareBaseUrl;
         _username = c.RememberMe ? c.RememberedUsername : string.Empty;
-        _passwordInput = c.RememberMe ? c.RememberedPassword : string.Empty;
         _rememberMe = c.RememberMe;
 
-        _dbHost = c.DbHost; _dbPort = c.DbPort; _dbName = c.DbName; _dbUser = c.DbUser; _dbPassword = c.DbPassword;
-        _ftpHost = c.FtpHost; _ftpPort = c.FtpPort; _ftpUser = c.FtpUser; _ftpPassword = c.FtpPassword;
-        _ftpRootPath = c.FtpRootPath; _ftpUseTls = c.FtpUseTls;
-
-        // Premier lancement (base non configurée) : accès libre aux réglages pour l'installation.
-        // Ensuite, il faut prouver qu'on est admin pour déverrouiller les paramètres serveur.
-        var firstRun = string.IsNullOrWhiteSpace(c.DbUser) || string.IsNullOrWhiteSpace(c.DbPassword);
-        _isServerPanelOpen = firstRun;
-        _isServerUnlocked = firstRun;
-
         LoginCommand = new AsyncRelayCommand(LoginAsync, () => !IsBusy);
-        TestConnectionCommand = new AsyncRelayCommand(TestConnectionAsync, () => !IsBusy);
-        UnlockServerCommand = new AsyncRelayCommand(UnlockServerAsync, () => !IsBusy);
-        ResetServerCommand = new RelayCommand(ResetServer);
-        SaveConnectionCommand = new RelayCommand(SaveConnection);
-        DeleteConnectionCommand = new RelayCommand(DeleteConnection);
-
-        foreach (var name in configService.ConnectionNames) SavedConnections.Add(name);
-        _selectedConnection = configService.Current.ActiveConnectionName;
     }
-
-    /// <summary>Connexions serveur enregistrées (pour basculer entre plusieurs serveurs).</summary>
-    public System.Collections.ObjectModel.ObservableCollection<string> SavedConnections { get; } = new();
 
     public event Action? LoginSucceeded;
 
     public AsyncRelayCommand LoginCommand { get; }
-    public AsyncRelayCommand TestConnectionCommand { get; }
-    public AsyncRelayCommand UnlockServerCommand { get; }
-    public RelayCommand ResetServerCommand { get; }
-    public RelayCommand SaveConnectionCommand { get; }
-    public RelayCommand DeleteConnectionCommand { get; }
 
+    [ObservableProperty] private string _serverUrl;
     [ObservableProperty] private string _username;
     [ObservableProperty] private string _passwordInput = string.Empty;
     [ObservableProperty] private bool _rememberMe;
-    [ObservableProperty] private bool _isServerPanelOpen;
-
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsServerLocked))]
-    private bool _isServerUnlocked;
-
-    public bool IsServerLocked => !IsServerUnlocked;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasStatus))]
     private string _statusMessage = string.Empty;
 
     [ObservableProperty] private bool _isError;
-
     [ObservableProperty] private bool _isBusy;
-
-    // --- Paramètres serveur (édités depuis l'écran de connexion) ---
-    [ObservableProperty] private string _dbHost;
-    [ObservableProperty] private int _dbPort;
-    [ObservableProperty] private string _dbName;
-    [ObservableProperty] private string _dbUser;
-    [ObservableProperty] private string _dbPassword;
-    [ObservableProperty] private string _ftpHost;
-    [ObservableProperty] private int _ftpPort;
-    [ObservableProperty] private string _ftpUser;
-    [ObservableProperty] private string _ftpPassword;
-    [ObservableProperty] private string _ftpRootPath;
-    [ObservableProperty] private bool _ftpUseTls;
-
-    // --- Connexions enregistrées (multi-serveurs) ---
-    [ObservableProperty] private string? _selectedConnection;
-    [ObservableProperty] private string _newConnectionName = string.Empty;
-    private bool _applyingConnection;
 
     public bool HasStatus => !string.IsNullOrEmpty(StatusMessage);
 
-    /// <summary>Vrai si un identifiant + mot de passe mémorisés permettent une connexion automatique.</summary>
+    /// <summary>Reconnexion auto possible si « rester connecté » a mémorisé un jeton + une URL.</summary>
     public bool CanAutoLogin =>
-        RememberMe && !string.IsNullOrWhiteSpace(Username) && !string.IsNullOrEmpty(PasswordInput);
+        RememberMe && !string.IsNullOrWhiteSpace(ServerUrl) && !string.IsNullOrEmpty(_configService.Current.ApiToken);
 
-    partial void OnIsBusyChanged(bool value)
-    {
-        LoginCommand.NotifyCanExecuteChanged();
-        TestConnectionCommand.NotifyCanExecuteChanged();
-        UnlockServerCommand.NotifyCanExecuteChanged();
-    }
+    partial void OnIsBusyChanged(bool value) => LoginCommand.NotifyCanExecuteChanged();
 
-    /// <summary>
-    /// Déverrouille les paramètres serveur en prouvant qu'on est admin : on vérifie
-    /// l'identifiant/mot de passe saisis en haut contre un compte admin de la base.
-    /// Au tout premier lancement (base non configurée), l'accès est libre.
-    /// </summary>
-    private async Task UnlockServerAsync()
+    private void SaveServerUrl()
     {
         var c = _configService.Current;
-        if (string.IsNullOrWhiteSpace(c.DbUser) || string.IsNullOrWhiteSpace(c.DbPassword))
-        {
-            IsServerUnlocked = true;
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(Username) || string.IsNullOrEmpty(PasswordInput))
-        {
-            SetStatus("Saisissez vos identifiants administrateur ci-dessus pour déverrouiller.", true);
-            return;
-        }
-
-        IsBusy = true;
-        try
-        {
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
-            var res = await _auth.LoginAsync(Username, PasswordInput, cts.Token);
-            if (res.Success && res.User is { IsAdmin: true })
-            {
-                IsServerUnlocked = true;
-                SetStatus("Paramètres serveur déverrouillés.", false);
-            }
-            else
-            {
-                SetStatus("Réservé aux administrateurs : identifiant ou mot de passe admin invalide.", true);
-            }
-        }
-        catch (Exception ex)
-        {
-            SetStatus($"Impossible de vérifier : {ex.Message}", true);
-        }
-        finally
-        {
-            IsBusy = false;
-        }
-    }
-
-    private void ApplyConfig()
-    {
-        var c = _configService.Current;
-        c.DbHost = DbHost.Trim(); c.DbPort = DbPort; c.DbName = DbName.Trim();
-        c.DbUser = DbUser.Trim(); c.DbPassword = DbPassword;
-        c.FtpHost = FtpHost.Trim(); c.FtpPort = FtpPort; c.FtpUser = FtpUser.Trim();
-        c.FtpPassword = FtpPassword; c.FtpRootPath = FtpPathUtil.Normalize(FtpRootPath);
-        c.FtpUseTls = FtpUseTls;
+        c.ShareBaseUrl = ServerUrl.Trim();
         _configService.Save(c);
-    }
-
-    private void SetStatus(string message, bool error)
-    {
-        IsError = error;
-        StatusMessage = message;
-    }
-
-    /// <summary>
-    /// Importe les paramètres serveur depuis un fichier (<c>.ddconfig</c> chiffré ou <c>.env</c>
-    /// en clair), remplit les champs et enregistre la config (chiffrée DPAPI au repos).
-    /// </summary>
-    public void ImportFromFile(string path)
-    {
-        try
-        {
-            var env = PortableConfig.LoadFile(path);
-            if (env.Count == 0)
-            {
-                SetStatus("Fichier de configuration illisible ou vide.", true);
-                return;
-            }
-
-            string? Get(string key) =>
-                env.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v) ? v : null;
-
-            if (Get("DOODLE_DB_HOST") is { } dbHost) DbHost = dbHost;
-            if (Get("DOODLE_DB_PORT") is { } dbPort && int.TryParse(dbPort, out var dbPortValue)) DbPort = dbPortValue;
-            if (Get("DOODLE_DB_NAME") is { } dbName) DbName = dbName;
-            if (Get("DOODLE_DB_USER") is { } dbUser) DbUser = dbUser;
-            if (Get("DOODLE_DB_PASSWORD") is { } dbPassword) DbPassword = dbPassword;
-            if (Get("DOODLE_FTP_HOST") is { } ftpHost) FtpHost = ftpHost;
-            if (Get("DOODLE_FTP_PORT") is { } ftpPort && int.TryParse(ftpPort, out var ftpPortValue)) FtpPort = ftpPortValue;
-            if (Get("DOODLE_FTP_USER") is { } ftpUser) FtpUser = ftpUser;
-            if (Get("DOODLE_FTP_PASSWORD") is { } ftpPassword) FtpPassword = ftpPassword;
-            if (Get("DOODLE_FTP_ROOT") is { } ftpRoot) FtpRootPath = ftpRoot;
-            if (Get("DOODLE_FTP_TLS") is { } ftpTls)
-                FtpUseTls = ftpTls.Trim().ToLowerInvariant() is "1" or "true" or "yes" or "oui" or "on";
-
-            // Enregistre les nouveaux paramètres (persistés et chiffrés dans config.json).
-            ApplyConfig();
-
-            // Config désormais renseignée : on verrouille le panneau serveur comme une
-            // machine déjà configurée. Un utilisateur non-admin ne peut plus voir/modifier
-            // les identifiants (déverrouillage réservé à l'admin via UnlockServerCommand).
-            if (!string.IsNullOrWhiteSpace(DbUser) && !string.IsNullOrWhiteSpace(DbPassword))
-            {
-                IsServerUnlocked = false;
-                IsServerPanelOpen = false;
-            }
-
-            SetStatus("Configuration serveur importée. Vous pouvez vous connecter.", false);
-        }
-        catch (Exception ex)
-        {
-            SetStatus($"Import impossible : {ex.Message}", true);
-        }
-    }
-
-    /// <summary>
-    /// Réinitialise les infos de connexion serveur et rouvre le panneau (état « premier
-    /// lancement ») pour re-saisir ou ré-importer une configuration.
-    /// </summary>
-    private void ResetServer()
-    {
-        _configService.ResetServerConfig();
-        LoadServerFieldsFromConfig();
-
-        IsServerUnlocked = true;
-        IsServerPanelOpen = true;
-        SetStatus("Infos de connexion réinitialisées. Saisissez ou importez une nouvelle configuration.", false);
-    }
-
-    private void LoadServerFieldsFromConfig()
-    {
-        var c = _configService.Current;
-        DbHost = c.DbHost; DbPort = c.DbPort; DbName = c.DbName; DbUser = c.DbUser; DbPassword = c.DbPassword;
-        FtpHost = c.FtpHost; FtpPort = c.FtpPort; FtpUser = c.FtpUser; FtpPassword = c.FtpPassword;
-        FtpRootPath = c.FtpRootPath; FtpUseTls = c.FtpUseTls;
-    }
-
-    /// <summary>Bascule sur une connexion enregistrée : ses identifiants remplissent les champs.</summary>
-    partial void OnSelectedConnectionChanged(string? value)
-    {
-        if (_applyingConnection || string.IsNullOrEmpty(value)) return;
-        if (!_configService.ApplyConnection(value)) return;
-        LoadServerFieldsFromConfig();
-        SetStatus($"Connexion « {value} » chargée.", false);
-    }
-
-    /// <summary>Enregistre les identifiants serveur saisis sous le nom donné.</summary>
-    private void SaveConnection()
-    {
-        var name = NewConnectionName.Trim();
-        if (string.IsNullOrEmpty(name))
-        {
-            SetStatus("Donnez un nom à la connexion avant de l'enregistrer.", true);
-            return;
-        }
-
-        ApplyConfig(); // persiste les champs saisis dans la config active
-        _configService.SaveCurrentAsConnection(name);
-        RefreshConnections(name);
-        NewConnectionName = string.Empty;
-        SetStatus($"Connexion « {name} » enregistrée.", false);
-    }
-
-    private void DeleteConnection()
-    {
-        var name = SelectedConnection;
-        if (string.IsNullOrEmpty(name)) return;
-        _configService.DeleteConnection(name);
-        RefreshConnections(null);
-        SetStatus($"Connexion « {name} » supprimée.", false);
-    }
-
-    private void RefreshConnections(string? select)
-    {
-        _applyingConnection = true;
-        SavedConnections.Clear();
-        foreach (var n in _configService.ConnectionNames) SavedConnections.Add(n);
-        SelectedConnection = select;
-        _applyingConnection = false;
-    }
-
-    private async Task TestConnectionAsync()
-    {
-        IsBusy = true;
-        SetStatus("Test de connexion en cours…", false);
-        try
-        {
-            ApplyConfig();
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
-            await _db.TestConnectionAsync(cts.Token);
-            await _ftp.TestConnectionAsync(cts.Token);
-            SetStatus("Connexion à la base et au FTP réussie.", false);
-            _notifications.Success("Connexion réussie", "Base MariaDB et FTP joignables.");
-        }
-        catch (Exception ex)
-        {
-            SetStatus($"Échec de connexion : {ex.Message}", true);
-        }
-        finally
-        {
-            IsBusy = false;
-        }
     }
 
     private async Task LoginAsync()
@@ -321,9 +68,14 @@ public sealed partial class LoginViewModel : ObservableObject
         SetStatus(string.Empty, false);
         try
         {
-            ApplyConfig();
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-            var result = await _auth.LoginAsync(Username, PasswordInput, cts.Token);
+            if (string.IsNullOrWhiteSpace(ServerUrl))
+            {
+                SetStatus("Renseignez l'adresse du serveur.", true);
+                return;
+            }
+            SaveServerUrl();
+
+            var result = await _auth.LoginAsync(Username, PasswordInput);
             if (!result.Success || result.User is null)
             {
                 SetStatus(result.Error ?? "Échec de connexion.", true);
@@ -331,13 +83,7 @@ public sealed partial class LoginViewModel : ObservableObject
             }
 
             _session.SignIn(result.User);
-
-            var c = _configService.Current;
-            c.RememberMe = RememberMe;
-            c.RememberedUsername = RememberMe ? result.User.Username : string.Empty;
-            c.RememberedPassword = RememberMe ? PasswordInput : string.Empty;
-            _configService.Save(c);
-
+            Persist(result.User);
             LoginSucceeded?.Invoke();
         }
         catch (Exception ex)
@@ -348,5 +94,36 @@ public sealed partial class LoginViewModel : ObservableObject
         {
             IsBusy = false;
         }
+    }
+
+    /// <summary>Reconnexion silencieuse via le jeton mémorisé. Renvoie true si réussie.</summary>
+    public async Task<bool> TryAutoLoginAsync()
+    {
+        var token = _configService.Current.ApiToken;
+        if (string.IsNullOrEmpty(token) || string.IsNullOrWhiteSpace(ServerUrl)) return false;
+        SaveServerUrl();
+
+        var result = await _auth.LoginWithTokenAsync(token);
+        if (!result.Success || result.User is null) return false;
+
+        _session.SignIn(result.User);
+        Persist(result.User);
+        LoginSucceeded?.Invoke();
+        return true;
+    }
+
+    private void Persist(User user)
+    {
+        var c = _configService.Current;
+        c.RememberMe = RememberMe;
+        c.RememberedUsername = RememberMe ? user.Username : string.Empty;
+        c.ApiToken = RememberMe ? (_auth.CurrentToken ?? string.Empty) : string.Empty;
+        _configService.Save(c);
+    }
+
+    private void SetStatus(string message, bool error)
+    {
+        IsError = error;
+        StatusMessage = message;
     }
 }

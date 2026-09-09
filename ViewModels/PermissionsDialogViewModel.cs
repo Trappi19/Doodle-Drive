@@ -68,7 +68,7 @@ public sealed partial class PermissionsDialogViewModel : ObservableObject
         try
         {
             Permissions.Clear();
-            var perms = await _db.GetFolderPermissionsAsync(_folder.Id);
+            var perms = await _db.GetFolderPermissionsAsync(_folder.FtpPath);
             foreach (var (user, level) in perms)
                 Permissions.Add(new PermissionRow(user, level));
 
@@ -102,7 +102,7 @@ public sealed partial class PermissionsDialogViewModel : ObservableObject
         try
         {
             IsBusy = true;
-            await _db.SetPermissionAsync(_folder.Id, user.Id, SelectedLevelToAdd, _session.UserId);
+            await _db.SetPermissionAsync(_folder.FtpPath, user.Id, SelectedLevelToAdd, _session.UserId);
             Permissions.Add(new PermissionRow(user, SelectedLevelToAdd));
             AddableUsers.Remove(user);
             SelectedUserToAdd = null;
@@ -124,7 +124,7 @@ public sealed partial class PermissionsDialogViewModel : ObservableObject
         try
         {
             IsBusy = true;
-            await _db.RemovePermissionAsync(_folder.Id, row.User.Id);
+            await _db.RemovePermissionAsync(_folder.FtpPath, row.User.Id);
             Permissions.Remove(row);
             AddableUsers.Add(row.User);
             _notify.Info("Accès retiré", row.Username);
@@ -146,7 +146,7 @@ public sealed partial class PermissionsDialogViewModel : ObservableObject
         var newLevel = row.Level == PermissionLevel.Write ? PermissionLevel.Read : PermissionLevel.Write;
         try
         {
-            await _db.SetPermissionAsync(_folder.Id, row.User.Id, newLevel, _session.UserId);
+            await _db.SetPermissionAsync(_folder.FtpPath, row.User.Id, newLevel, _session.UserId);
             row.Level = newLevel;
         }
         catch (Exception ex)

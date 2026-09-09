@@ -1,359 +1,138 @@
-using Dapper;
 using DoodleDrive.Models;
-using MySqlConnector;
 
 namespace DoodleDrive.Services;
 
 /// <summary>
-/// Accès direct à la base MariaDB <c>cloud_perso</c> (comptes &amp; permissions) via MySqlConnector + Dapper.
-/// Aucun backend intermédiaire : l'application interroge la base directement.
+/// Accès aux données (comptes, dossiers, permissions, partages). Depuis la migration API,
+/// c'est un adaptateur au-dessus de <see cref="ApiClient"/> — plus aucun accès MariaDB direct.
+/// Les signatures « historiques » sont conservées au maximum pour limiter les changements de VM ;
+/// les permissions passent désormais par le CHEMIN (l'API est orientée chemin, pas folderId).
 /// </summary>
 public sealed class DatabaseService
 {
-    private readonly AppConfigService _configService;
+    private readonly ApiClient _api;
 
-    static DatabaseService()
-    {
-        // Mappe password_hash -> PasswordHash, ftp_path -> FtpPath, etc.
-        DefaultTypeMap.MatchNamesWithUnderscores = true;
-    }
+    public DatabaseService(ApiClient api) => _api = api;
 
-    public DatabaseService(AppConfigService configService) => _configService = configService;
+    public Task TestConnectionAsync(CancellationToken ct = default) => _api.MeAsync(ct);
 
-    private string BuildConnectionString()
-    {
-        var c = _configService.Current;
-        return new MySqlConnectionStringBuilder
-        {
-            Server = c.DbHost,
-            Port = (uint)c.DbPort,
-            Database = c.DbName,
-            UserID = c.DbUser,
-            Password = c.DbPassword,
-            SslMode = MySqlSslMode.Preferred,
-            ConnectionTimeout = 15,
-            DefaultCommandTimeout = 30,
-            AllowUserVariables = true
-        }.ConnectionString;
-    }
+    // ---------- Utilisateurs ----------
+    public async Task<IReadOnlyList<User>> GetAllUsersAsync(CancellationToken ct = default) =>
+        (await _api.GetUsersAsync(ct)).Select(ToUser).ToList();
 
-    private MySqlConnection CreateConnection() => new(BuildConnectionString());
+    public async Task<bool> UsernameExistsAsync(string username, CancellationToken ct = default) =>
+        (await _api.GetUsersAsync(ct)).Any(u => string.Equals(u.Username, username, StringComparison.OrdinalIgnoreCase));
 
-    /// <summary>Teste la connexion (utilisé par l'écran de connexion et les paramètres).</summary>
-    public async Task TestConnectionAsync(CancellationToken ct = default)
-    {
-        await using var conn = CreateConnection();
-        await conn.OpenAsync(ct);
-        await conn.QueryFirstOrDefaultAsync<int>(new CommandDefinition("SELECT 1", cancellationToken: ct));
-    }
+    /// <summary>Crée un compte. Le mot de passe est transmis en clair : c'est l'API qui le hash.</summary>
+    public async Task<int> CreateUserAsync(string username, string password, UserRole role, CancellationToken ct = default) =>
+        (await _api.CreateUserAsync(username, password, role.ToDbValue(), ct)).Id;
 
-    // =====================================================================
-    //  Utilisateurs
-    // =====================================================================
+    public Task UpdateUserRoleAsync(int userId, UserRole role, CancellationToken ct = default) =>
+        _api.SetUserRoleAsync(userId, role.ToDbValue(), ct);
 
-    public async Task<User?> GetUserByUsernameAsync(string username, CancellationToken ct = default)
-    {
-        const string sql = @"SELECT id, username, password_hash, role, created_at, default_path, last_path
-                             FROM users WHERE username = @username LIMIT 1;";
-        await using var conn = CreateConnection();
-        return await conn.QueryFirstOrDefaultAsync<User>(new CommandDefinition(sql, new { username }, cancellationToken: ct));
-    }
+    /// <summary>Change le mot de passe (transmis en clair, hashé par l'API).</summary>
+    public Task UpdateUserPasswordAsync(int userId, string password, CancellationToken ct = default) =>
+        _api.SetUserPasswordAsync(userId, password, ct);
 
-    public async Task<IReadOnlyList<User>> GetAllUsersAsync(CancellationToken ct = default)
-    {
-        const string sql = @"SELECT id, username, password_hash, role, created_at, default_path, last_path
-                             FROM users ORDER BY username;";
-        await using var conn = CreateConnection();
-        var users = await conn.QueryAsync<User>(new CommandDefinition(sql, cancellationToken: ct));
-        return users.ToList();
-    }
+    public Task UpdateUserDefaultPathAsync(int userId, string? path, CancellationToken ct = default) =>
+        _api.SetUserDefaultPathAsync(userId, path, ct);
 
-    public async Task<bool> UsernameExistsAsync(string username, CancellationToken ct = default)
-    {
-        const string sql = "SELECT COUNT(1) FROM users WHERE username = @username;";
-        await using var conn = CreateConnection();
-        return await conn.ExecuteScalarAsync<long>(new CommandDefinition(sql, new { username }, cancellationToken: ct)) > 0;
-    }
+    public Task UpdateUserLastPathAsync(int userId, string? path, CancellationToken ct = default) =>
+        _api.SetLastPathAsync(path ?? "/", ct);
 
-    public async Task<int> CreateUserAsync(string username, string passwordHash, UserRole role, CancellationToken ct = default)
-    {
-        const string sql = @"INSERT INTO users (username, password_hash, role)
-                             VALUES (@username, @passwordHash, @role);
-                             SELECT LAST_INSERT_ID();";
-        await using var conn = CreateConnection();
-        return await conn.ExecuteScalarAsync<int>(new CommandDefinition(
-            sql, new { username, passwordHash, role = role.ToDbValue() }, cancellationToken: ct));
-    }
+    public Task DeleteUserAsync(int userId, CancellationToken ct = default) =>
+        _api.DeleteUserAsync(userId, ct);
 
-    public async Task UpdateUserRoleAsync(int userId, UserRole role, CancellationToken ct = default)
-    {
-        const string sql = "UPDATE users SET role = @role WHERE id = @userId;";
-        await using var conn = CreateConnection();
-        await conn.ExecuteAsync(new CommandDefinition(sql, new { userId, role = role.ToDbValue() }, cancellationToken: ct));
-    }
+    public async Task<int> GetAdminCountAsync(CancellationToken ct = default) =>
+        (await _api.GetUsersAsync(ct)).Count(u => string.Equals(u.Role, "admin", StringComparison.OrdinalIgnoreCase));
 
-    public async Task UpdateUserPasswordAsync(int userId, string passwordHash, CancellationToken ct = default)
-    {
-        const string sql = "UPDATE users SET password_hash = @passwordHash WHERE id = @userId;";
-        await using var conn = CreateConnection();
-        await conn.ExecuteAsync(new CommandDefinition(sql, new { userId, passwordHash }, cancellationToken: ct));
-    }
-
-    /// <summary>Chemin d'atterrissage attribué par un admin (null pour revenir à l'automatique).</summary>
-    public async Task UpdateUserDefaultPathAsync(int userId, string? path, CancellationToken ct = default)
-    {
-        const string sql = "UPDATE users SET default_path = @path WHERE id = @userId;";
-        await using var conn = CreateConnection();
-        await conn.ExecuteAsync(new CommandDefinition(sql, new { userId, path }, cancellationToken: ct));
-    }
-
-    /// <summary>Dernier chemin visité (mémorisé à chaque navigation, best-effort).</summary>
-    public async Task UpdateUserLastPathAsync(int userId, string? path, CancellationToken ct = default)
-    {
-        const string sql = "UPDATE users SET last_path = @path WHERE id = @userId;";
-        await using var conn = CreateConnection();
-        await conn.ExecuteAsync(new CommandDefinition(sql, new { userId, path }, cancellationToken: ct));
-    }
-
-    public async Task DeleteUserAsync(int userId, CancellationToken ct = default)
-    {
-        const string sql = "DELETE FROM users WHERE id = @userId;";
-        await using var conn = CreateConnection();
-        await conn.ExecuteAsync(new CommandDefinition(sql, new { userId }, cancellationToken: ct));
-    }
-
-    public async Task<int> GetAdminCountAsync(CancellationToken ct = default)
-    {
-        const string sql = "SELECT COUNT(1) FROM users WHERE role = 'admin';";
-        await using var conn = CreateConnection();
-        return (int)await conn.ExecuteScalarAsync<long>(new CommandDefinition(sql, cancellationToken: ct));
-    }
-
-    // =====================================================================
-    //  Dossiers
-    // =====================================================================
-
-    public async Task<IReadOnlyList<Folder>> GetAllFoldersAsync(CancellationToken ct = default)
-    {
-        const string sql = @"SELECT f.id, f.name, f.ftp_path, f.parent_id, f.owner_id, f.created_at, u.username AS owner_name
-                             FROM folders f JOIN users u ON u.id = f.owner_id
-                             ORDER BY f.ftp_path;";
-        await using var conn = CreateConnection();
-        var folders = await conn.QueryAsync<Folder>(new CommandDefinition(sql, cancellationToken: ct));
-        return folders.ToList();
-    }
-
-    /// <summary>
-    /// Renvoie tous les dossiers accessibles à l'utilisateur (propriétaire ou partagé),
-    /// enfants inclus par héritage, avec le niveau d'accès effectif calculé.
-    /// </summary>
-    public async Task<IReadOnlyList<(Folder Folder, FolderAccessLevel Access)>> GetAccessibleFoldersAsync(
-        int userId, CancellationToken ct = default)
-    {
-        // La table folders est de petite taille (usage perso) : on la charge en mémoire
-        // et on résout l'héritage côté application, ce qui reste simple et lisible.
-        const string foldersSql = @"SELECT id, name, ftp_path, parent_id, owner_id, created_at FROM folders;";
-        const string permsSql = @"SELECT folder_id AS FolderId, permission AS Permission
-                                  FROM folder_permissions WHERE user_id = @userId;";
-
-        await using var conn = CreateConnection();
-        var allFolders = (await conn.QueryAsync<Folder>(new CommandDefinition(foldersSql, cancellationToken: ct))).ToList();
-        var perms = (await conn.QueryAsync<UserFolderPermDto>(
-            new CommandDefinition(permsSql, new { userId }, cancellationToken: ct))).ToList();
-
-        var byId = allFolders.ToDictionary(f => f.Id);
-        var directPerms = perms
-            .GroupBy(p => p.FolderId)
-            .ToDictionary(g => g.Key, g => g.First().Permission.ToPermissionLevel());
-
-        FolderAccessLevel Resolve(Folder folder)
-        {
-            var best = FolderAccessLevel.None;
-            var current = (Folder?)folder;
-            var guard = 0; // sécurité anti-boucle sur des parent_id incohérents
-            while (current is not null && guard++ < 512)
-            {
-                if (current.OwnerId == userId)
-                    return FolderAccessLevel.Owner; // la propriété d'un ancêtre donne le niveau maximal
-
-                if (directPerms.TryGetValue(current.Id, out var level))
-                {
-                    var mapped = level == PermissionLevel.Write ? FolderAccessLevel.Write : FolderAccessLevel.Read;
-                    if (mapped > best) best = mapped;
-                }
-
-                current = current.ParentId is int pid && byId.TryGetValue(pid, out var parent) ? parent : null;
-            }
-            return best;
-        }
-
-        var result = new List<(Folder, FolderAccessLevel)>();
-        foreach (var folder in allFolders)
-        {
-            var access = Resolve(folder);
-            if (access != FolderAccessLevel.None)
-                result.Add((folder, access));
-        }
-        return result;
-    }
+    // ---------- Dossiers ----------
+    public async Task<IReadOnlyList<Folder>> GetAllFoldersAsync(CancellationToken ct = default) =>
+        (await _api.GetAllFoldersAsync(ct)).Select(ToFolder).ToList();
 
     public async Task<Folder?> GetFolderByPathAsync(string ftpPath, CancellationToken ct = default)
     {
-        const string sql = @"SELECT id, name, ftp_path, parent_id, owner_id, created_at
-                             FROM folders WHERE ftp_path = @ftpPath LIMIT 1;";
-        await using var conn = CreateConnection();
-        return await conn.QueryFirstOrDefaultAsync<Folder>(new CommandDefinition(sql, new { ftpPath }, cancellationToken: ct));
+        try
+        {
+            var target = FtpPathUtil.Normalize(ftpPath);
+            var f = (await _api.GetAllFoldersAsync(ct)).FirstOrDefault(x => FtpPathUtil.Normalize(x.FtpPath) == target);
+            return f is null ? null : ToFolder(f);
+        }
+        catch (ApiException)
+        {
+            return null; // non-admin (403) : ne gère pas les dossiers enregistrés
+        }
     }
 
-    public async Task<int> CreateFolderAsync(string name, string ftpPath, int? parentId, int ownerId, CancellationToken ct = default)
+    public async Task<IReadOnlyList<(Folder Folder, FolderAccessLevel Access)>> GetAccessibleFoldersAsync(
+        int userId, CancellationToken ct = default)
     {
-        const string sql = @"INSERT INTO folders (name, ftp_path, parent_id, owner_id)
-                             VALUES (@name, @ftpPath, @parentId, @ownerId);
-                             SELECT LAST_INSERT_ID();";
-        await using var conn = CreateConnection();
-        return await conn.ExecuteScalarAsync<int>(new CommandDefinition(
-            sql, new { name, ftpPath, parentId, ownerId }, cancellationToken: ct));
+        var acc = await _api.GetAccessibleAsync(ct);
+        return acc.Folders.Select(f => (
+            new Folder { Id = f.Id, Name = f.Name, FtpPath = f.FtpPath, ParentId = f.ParentId },
+            ParseAccess(f.Access))).ToList();
     }
 
-    /// <summary>Renomme un dossier et répercute le changement de chemin sur tous ses sous-dossiers.</summary>
-    public async Task RenameFolderAsync(int folderId, string oldPath, string newPath, string newName, CancellationToken ct = default)
-    {
-        const string sql = @"
-            UPDATE folders
-            SET ftp_path = CONCAT(@newPath, SUBSTRING(ftp_path, @oldPathLen + 1))
-            WHERE ftp_path = @oldPath OR ftp_path LIKE CONCAT(@oldPath, '/%');
-            UPDATE folders SET name = @newName WHERE id = @folderId;";
-        await using var conn = CreateConnection();
-        await conn.ExecuteAsync(new CommandDefinition(
-            sql, new { folderId, oldPath, newPath, newName, oldPathLen = oldPath.Length }, cancellationToken: ct));
-    }
+    // Ces opérations sur la table `folders` sont désormais gérées côté serveur (ou non nécessaires
+    // en mode API) : l'enregistrement d'un dossier se fait à l'attribution d'une permission.
+    public Task<int> CreateFolderAsync(string name, string ftpPath, int? parentId, int ownerId, CancellationToken ct = default)
+        => Task.FromResult(0);
+    public Task RenameFolderAsync(int folderId, string oldPath, string newPath, string newName, CancellationToken ct = default)
+        => Task.CompletedTask;
+    public Task DeleteFolderAsync(int folderId, CancellationToken ct = default) => Task.CompletedTask;
+    public Task DeleteFoldersByPathAsync(string ftpPath, CancellationToken ct = default) => Task.CompletedTask;
 
-    /// <summary>Supprime l'enregistrement d'un dossier (CASCADE supprime sous-dossiers et permissions).</summary>
-    public async Task DeleteFolderAsync(int folderId, CancellationToken ct = default)
-    {
-        const string sql = "DELETE FROM folders WHERE id = @folderId;";
-        await using var conn = CreateConnection();
-        await conn.ExecuteAsync(new CommandDefinition(sql, new { folderId }, cancellationToken: ct));
-    }
-
-    /// <summary>Supprime les enregistrements de dossiers dont le chemin correspond ou descend de <paramref name="ftpPath"/>.</summary>
-    public async Task DeleteFoldersByPathAsync(string ftpPath, CancellationToken ct = default)
-    {
-        const string sql = "DELETE FROM folders WHERE ftp_path = @ftpPath OR ftp_path LIKE CONCAT(@ftpPath, '/%');";
-        await using var conn = CreateConnection();
-        await conn.ExecuteAsync(new CommandDefinition(sql, new { ftpPath }, cancellationToken: ct));
-    }
-
-    // =====================================================================
-    //  Permissions de partage
-    // =====================================================================
-
+    // ---------- Permissions (orientées CHEMIN) ----------
     public async Task<IReadOnlyList<(User User, PermissionLevel Level)>> GetFolderPermissionsAsync(
-        int folderId, CancellationToken ct = default)
+        string ftpPath, CancellationToken ct = default)
     {
-        const string sql = @"SELECT u.id AS Id, u.username AS Username, u.password_hash AS PasswordHash,
-                                    u.role AS Role, u.created_at AS CreatedAt, fp.permission AS Permission
-                             FROM folder_permissions fp
-                             JOIN users u ON u.id = fp.user_id
-                             WHERE fp.folder_id = @folderId
-                             ORDER BY u.username;";
-        await using var conn = CreateConnection();
-        var rows = await conn.QueryAsync<PermissionRowDto>(
-            new CommandDefinition(sql, new { folderId }, cancellationToken: ct));
-
-        return rows.Select(r => (
-            new User { Id = r.Id, Username = r.Username, PasswordHash = r.PasswordHash, Role = r.Role.ToUserRole(), CreatedAt = r.CreatedAt },
-            r.Permission.ToPermissionLevel())).ToList();
+        var p = await _api.GetPermissionsAsync(ftpPath, ct);
+        return p.Permissions.Select(x => (
+            new User { Id = x.UserId, Username = x.Username },
+            string.Equals(x.Permission, "write", StringComparison.OrdinalIgnoreCase) ? PermissionLevel.Write : PermissionLevel.Read
+        )).ToList();
     }
 
-    private sealed class PermissionRowDto
-    {
-        public int Id { get; init; }
-        public string Username { get; init; } = string.Empty;
-        public string PasswordHash { get; init; } = string.Empty;
-        public string Role { get; init; } = "user";
-        public DateTime CreatedAt { get; init; }
-        public string Permission { get; init; } = "read";
-    }
+    public Task SetPermissionAsync(string ftpPath, int userId, PermissionLevel level, int grantedBy, CancellationToken ct = default) =>
+        _api.SetPermissionAsync(ftpPath, userId, level.ToDbValue(), ct);
 
-    private sealed class UserFolderPermDto
-    {
-        public int FolderId { get; init; }
-        public string Permission { get; init; } = "read";
-    }
+    public Task RemovePermissionAsync(string ftpPath, int userId, CancellationToken ct = default) =>
+        _api.RemovePermissionAsync(ftpPath, userId, ct);
 
-    /// <summary>Ajoute ou met à jour une permission (respecte la contrainte unique folder_id/user_id).</summary>
-    public async Task SetPermissionAsync(int folderId, int userId, PermissionLevel level, int grantedBy, CancellationToken ct = default)
-    {
-        const string sql = @"INSERT INTO folder_permissions (folder_id, user_id, permission, granted_by)
-                             VALUES (@folderId, @userId, @permission, @grantedBy)
-                             ON DUPLICATE KEY UPDATE permission = @permission, granted_by = @grantedBy;";
-        await using var conn = CreateConnection();
-        await conn.ExecuteAsync(new CommandDefinition(
-            sql, new { folderId, userId, permission = level.ToDbValue(), grantedBy }, cancellationToken: ct));
-    }
+    // ---------- Partages ----------
+    public Task EnsureSharesTableAsync(CancellationToken ct = default) => Task.CompletedTask; // géré par le serveur
 
-    public async Task RemovePermissionAsync(int folderId, int userId, CancellationToken ct = default)
-    {
-        const string sql = "DELETE FROM folder_permissions WHERE folder_id = @folderId AND user_id = @userId;";
-        await using var conn = CreateConnection();
-        await conn.ExecuteAsync(new CommandDefinition(sql, new { folderId, userId }, cancellationToken: ct));
-    }
+    /// <summary>Crée un partage via l'API (le serveur génère le jeton) et le renvoie.</summary>
+    public async Task<string> CreateShareAsync(string ftpPath, string mode, bool isDir, int? expiresInDays, CancellationToken ct = default) =>
+        (await _api.CreateShareAsync(ftpPath, mode, isDir, expiresInDays, ct)).Token;
 
-    // =====================================================================
-    //  Liens de partage public (servis par DoodleDrive.ShareServer)
-    // =====================================================================
+    public async Task<IReadOnlyList<ShareLink>> GetSharesAsync(int? createdBy, CancellationToken ct = default) =>
+        (await _api.GetSharesAsync(ct)).Select(s => new ShareLink
+        {
+            Token = s.Token, FtpPath = s.FtpPath, FileName = s.FileName, Mode = s.Mode, IsDir = s.IsDir,
+            CreatedAt = s.CreatedAt, ExpiresAt = s.ExpiresAt, Revoked = s.Revoked, ViewCount = s.ViewCount
+        }).ToList();
 
-    /// <summary>Crée la table des partages si elle n'existe pas (le serveur la crée aussi de son côté).</summary>
-    public async Task EnsureSharesTableAsync(CancellationToken ct = default)
-    {
-        const string createSql = @"
-            CREATE TABLE IF NOT EXISTS shares (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                token VARCHAR(32) NOT NULL UNIQUE,
-                ftp_path VARCHAR(1024) NOT NULL,
-                file_name VARCHAR(512) NOT NULL,
-                mode ENUM('download','preview') NOT NULL DEFAULT 'download',
-                is_dir TINYINT(1) NOT NULL DEFAULT 0,
-                created_by INT NULL,
-                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                expires_at DATETIME NULL,
-                revoked TINYINT(1) NOT NULL DEFAULT 0,
-                view_count INT NOT NULL DEFAULT 0
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;";
-        await using var conn = CreateConnection();
-        await conn.ExecuteAsync(new CommandDefinition(createSql, cancellationToken: ct));
-        // Migration pour les bases créées avant l'ajout du partage de dossiers.
-        await conn.ExecuteAsync(new CommandDefinition(
-            "ALTER TABLE shares ADD COLUMN IF NOT EXISTS is_dir TINYINT(1) NOT NULL DEFAULT 0;", cancellationToken: ct));
-    }
+    public Task RevokeShareAsync(string token, CancellationToken ct = default) => _api.RevokeShareAsync(token, ct);
 
-    /// <summary>Enregistre un lien de partage. <paramref name="mode"/> = "download" ou "preview".</summary>
-    public async Task CreateShareAsync(
-        string token, string ftpPath, string fileName, string mode, bool isDir, int createdBy,
-        DateTime? expiresAtUtc, CancellationToken ct = default)
+    // ---------- Mappings ----------
+    private static User ToUser(ApiAdminUser u) => new()
     {
-        const string sql = @"INSERT INTO shares (token, ftp_path, file_name, mode, is_dir, created_by, expires_at)
-                             VALUES (@token, @ftpPath, @fileName, @mode, @isDir, @createdBy, @expiresAt);";
-        await using var conn = CreateConnection();
-        await conn.ExecuteAsync(new CommandDefinition(
-            sql, new { token, ftpPath, fileName, mode, isDir, createdBy, expiresAt = expiresAtUtc }, cancellationToken: ct));
-    }
+        Id = u.Id, Username = u.Username, CreatedAt = u.CreatedAt, DefaultPath = u.DefaultPath,
+        Role = string.Equals(u.Role, "admin", StringComparison.OrdinalIgnoreCase) ? UserRole.Admin : UserRole.User
+    };
 
-    public async Task<IReadOnlyList<ShareLink>> GetSharesAsync(int? createdBy, CancellationToken ct = default)
+    private static Folder ToFolder(ApiFolder f) => new()
     {
-        var sql = @"SELECT token, ftp_path, file_name, mode, is_dir, created_at, expires_at, revoked, view_count
-                    FROM shares" + (createdBy is null ? "" : " WHERE created_by = @createdBy") +
-                  " ORDER BY created_at DESC;";
-        await using var conn = CreateConnection();
-        var rows = await conn.QueryAsync<ShareLink>(new CommandDefinition(sql, new { createdBy }, cancellationToken: ct));
-        return rows.ToList();
-    }
+        Id = f.Id, Name = f.Name, FtpPath = f.FtpPath, ParentId = f.ParentId, OwnerId = f.OwnerId, OwnerName = f.OwnerName
+    };
 
-    public async Task RevokeShareAsync(string token, CancellationToken ct = default)
+    private static FolderAccessLevel ParseAccess(string a) => a switch
     {
-        const string sql = "UPDATE shares SET revoked = 1 WHERE token = @token;";
-        await using var conn = CreateConnection();
-        await conn.ExecuteAsync(new CommandDefinition(sql, new { token }, cancellationToken: ct));
-    }
+        "Owner" => FolderAccessLevel.Owner,
+        "Write" => FolderAccessLevel.Write,
+        "Read" => FolderAccessLevel.Read,
+        "Traverse" => FolderAccessLevel.Traverse,
+        _ => FolderAccessLevel.None
+    };
 }

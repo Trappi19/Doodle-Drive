@@ -9,8 +9,8 @@
                  xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
                  d:DataContext="{d:DesignInstance vm:LoginViewModel}"
                  Title="Doodle Drive"
-                 Width="480" Height="720"
-                 MinWidth="420" MinHeight="560"
+                 Width="480" Height="640"
+                 MinWidth="420" MinHeight="520"
                  WindowStartupLocation="CenterScreen"
                  ExtendsContentIntoTitleBar="True"
                  WindowBackdropType="Mica"
@@ -41,10 +41,14 @@
                 </Image>
 
                 <TextBlock Text="Doodle Drive" FontSize="28" FontWeight="Bold" HorizontalAlignment="Center" />
-                <TextBlock Text="Votre drive personnel sur la Freebox"
+                <TextBlock Text="Votre drive personnel"
                            Opacity="0.7" HorizontalAlignment="Center" Margin="0,2,0,26" />
 
-                <TextBlock Text="Identifiant" Margin="2,0,0,4" FontWeight="SemiBold" />
+                <TextBlock Text="Adresse du serveur" Margin="2,0,0,4" FontWeight="SemiBold" />
+                <ui:TextBox Text="{Binding ServerUrl, UpdateSourceTrigger=PropertyChanged}"
+                            PlaceholderText="https://…ts.net" />
+
+                <TextBlock Text="Identifiant" Margin="2,14,0,4" FontWeight="SemiBold" />
                 <ui:TextBox Text="{Binding Username, UpdateSourceTrigger=PropertyChanged}"
                             PlaceholderText="Nom d'utilisateur" />
 
@@ -82,100 +86,6 @@
                         </TextBlock.Style>
                     </TextBlock>
                 </Border>
-
-                <ui:Button Click="OnImportClick" Appearance="Secondary"
-                           HorizontalAlignment="Stretch" Margin="0,16,0,0"
-                           Content="Importer une configuration…" />
-                <TextBlock Text="…ou glissez un fichier .ddconfig / .env sur la fenêtre"
-                           Opacity="0.6" FontSize="11" HorizontalAlignment="Center"
-                           Margin="0,6,0,0" TextWrapping="Wrap" />
-
-                <Expander Header="Paramètres serveur (MariaDB &amp; FTP)"
-                          IsExpanded="{Binding IsServerPanelOpen}" Margin="0,22,0,0">
-                    <Grid Margin="0,10,0,0">
-                        <!-- Cadenas : réservé aux administrateurs -->
-                        <StackPanel Visibility="{Binding IsServerLocked, Converter={StaticResource BoolToVis}}">
-                            <Border CornerRadius="8" Padding="12" Background="{DynamicResource CardBackgroundFillColorSecondaryBrush}">
-                                <StackPanel>
-                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
-                                        <TextBlock Style="{StaticResource GlyphText}" Text="&#xE72E;" FontSize="16" Margin="0,0,8,0" />
-                                        <TextBlock Text="Réglages réservés à l'administrateur" FontWeight="SemiBold" VerticalAlignment="Center" />
-                                    </StackPanel>
-                                    <TextBlock TextWrapping="Wrap" Opacity="0.75" FontSize="12"
-                                               Text="Saisissez vos identifiants administrateur dans les champs ci-dessus, puis déverrouillez pour modifier la connexion au serveur." />
-                                    <ui:Button Command="{Binding UnlockServerCommand}" Appearance="Secondary"
-                                               HorizontalAlignment="Stretch" Margin="0,10,0,0" Content="Déverrouiller (admin)" />
-                                </StackPanel>
-                            </Border>
-                            <ui:Button Command="{Binding ResetServerCommand}" Appearance="Secondary"
-                                       HorizontalAlignment="Stretch" Margin="0,10,0,0"
-                                       Content="Réinitialiser les infos de connexion" />
-                        </StackPanel>
-
-                        <!-- Réglages serveur (déverrouillés) -->
-                        <StackPanel Visibility="{Binding IsServerUnlocked, Converter={StaticResource BoolToVis}}">
-
-                        <TextBlock Text="Connexions enregistrées" FontWeight="SemiBold" Margin="0,0,0,6"
-                                   Visibility="{Binding SavedConnections.Count, Converter={StaticResource CountToVis}}" />
-                        <ComboBox ItemsSource="{Binding SavedConnections}"
-                                  SelectedItem="{Binding SelectedConnection, Mode=TwoWay}"
-                                  MinHeight="36"
-                                  Visibility="{Binding SavedConnections.Count, Converter={StaticResource CountToVis}}" />
-                        <Grid Margin="0,8,0,18">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="8" />
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="6" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <ui:TextBox Grid.Column="0" Text="{Binding NewConnectionName, UpdateSourceTrigger=PropertyChanged}"
-                                        PlaceholderText="Nom de la connexion" />
-                            <ui:Button Grid.Column="2" Command="{Binding SaveConnectionCommand}"
-                                       Content="Enregistrer" Appearance="Secondary" />
-                            <ui:Button Grid.Column="4" Command="{Binding DeleteConnectionCommand}"
-                                       Content="Supprimer" Appearance="Secondary" />
-                        </Grid>
-
-                        <TextBlock Text="Base MariaDB" FontWeight="SemiBold" Margin="0,0,0,6" />
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="2*" />
-                                <ColumnDefinition Width="8" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <ui:TextBox Grid.Column="0" Text="{Binding DbHost}" PlaceholderText="Hôte" />
-                            <ui:TextBox Grid.Column="2" Text="{Binding DbPort}" PlaceholderText="Port" />
-                        </Grid>
-                        <ui:TextBox Text="{Binding DbName}" PlaceholderText="Base de données" Margin="0,8,0,0" />
-                        <ui:TextBox Text="{Binding DbUser}" PlaceholderText="Utilisateur SQL" Margin="0,8,0,0" />
-                        <PasswordBox h:PasswordHelper.BindPassword="True"
-                                     h:PasswordHelper.BoundPassword="{Binding DbPassword, Mode=TwoWay}"
-                                     MinHeight="38" Margin="0,8,0,0" />
-
-                        <TextBlock Text="Serveur FTP (disque dur)" FontWeight="SemiBold" Margin="0,16,0,6" />
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="2*" />
-                                <ColumnDefinition Width="8" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <ui:TextBox Grid.Column="0" Text="{Binding FtpHost}" PlaceholderText="Hôte FTP" />
-                            <ui:TextBox Grid.Column="2" Text="{Binding FtpPort}" PlaceholderText="Port" />
-                        </Grid>
-                        <ui:TextBox Text="{Binding FtpUser}" PlaceholderText="Utilisateur FTP" Margin="0,8,0,0" />
-                        <PasswordBox h:PasswordHelper.BindPassword="True"
-                                     h:PasswordHelper.BoundPassword="{Binding FtpPassword, Mode=TwoWay}"
-                                     MinHeight="38" Margin="0,8,0,0" />
-                        <ui:TextBox Text="{Binding FtpRootPath}" PlaceholderText="Dossier racine (ex : /Disque dur)" Margin="0,8,0,0" />
-                        <CheckBox Content="Utiliser FTPS (TLS explicite)" IsChecked="{Binding FtpUseTls}" Margin="0,10,0,0" />
-
-                        <ui:Button Command="{Binding TestConnectionCommand}"
-                                   Content="Tester la connexion" Appearance="Secondary"
-                                   HorizontalAlignment="Stretch" Margin="0,14,0,0" />
-                        </StackPanel>
-                    </Grid>
-                </Expander>
             </StackPanel>
         </ScrollViewer>
     </Grid>

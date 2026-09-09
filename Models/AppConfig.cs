@@ -57,6 +57,9 @@ public sealed class AppConfig
     /// </summary>
     public string ShareBaseUrl { get; set; } = string.Empty;
 
+    /// <summary>Jeton d'authentification API mémorisé (« rester connecté »), chiffré DPAPI au repos.</summary>
+    public string ApiToken { get; set; } = string.Empty;
+
     /// <summary>
     /// Au lancement automatique avec Windows : ouvrir aussi la fenêtre. Si faux (défaut),
     /// l'app démarre uniquement en tâche de fond (icône près de l'horloge).

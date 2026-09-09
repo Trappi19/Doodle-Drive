@@ -98,7 +98,7 @@ public sealed partial class AdminViewModel : ObservableObject
                 return;
             }
 
-            await _db.CreateUserAsync(username, AuthService.HashPassword(password), role);
+            await _db.CreateUserAsync(username, password, role);
             _notify.Success("Compte créé", username);
             await LoadAsync();
         }
@@ -157,7 +157,7 @@ public sealed partial class AdminViewModel : ObservableObject
 
         try
         {
-            await _db.UpdateUserPasswordAsync(user.Id, AuthService.HashPassword(dialog.Password));
+            await _db.UpdateUserPasswordAsync(user.Id, dialog.Password);
             _notify.Success("Mot de passe réinitialisé", user.Username);
         }
         catch (Exception ex)

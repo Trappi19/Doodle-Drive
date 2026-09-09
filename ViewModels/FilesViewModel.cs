@@ -560,18 +560,12 @@ public sealed partial class FilesViewModel : ObservableObject
         return false;
     }
 
-    private async Task UpdateManageStateAsync(string path)
+    private Task UpdateManageStateAsync(string path)
     {
-        try
-        {
-            var folder = await _db.GetFolderByPathAsync(path);
-            CanManageCurrent = folder is not null && (_session.IsAdmin || folder.OwnerId == _session.UserId);
-        }
-        catch
-        {
-            CanManageCurrent = false;
-        }
+        // En mode API, seul un admin gère les accès (l'endpoint permissions est admin-only).
+        CanManageCurrent = _session.IsAdmin;
         ManageAccessCommand.NotifyCanExecuteChanged();
+        return Task.CompletedTask;
     }
 
     // =====================================================================
@@ -1139,14 +1133,20 @@ public sealed partial class FilesViewModel : ObservableObject
 
     private async Task<Folder?> EnsureManageableFolderAsync(string path)
     {
+        // La gestion des accès est réservée aux admins (l'API attribue un dossier à un user).
+        if (!_session.IsAdmin) return null;
+
         var folder = await _db.GetFolderByPathAsync(path);
         if (folder is not null) return folder;
 
-        // Seul l'admin peut transformer un dossier FTP quelconque en dossier partageable.
-        if (!_session.IsAdmin) return null;
-
-        await RegisterFolderAsync(path);
-        return await _db.GetFolderByPathAsync(path);
+        // Pas encore enregistré : dossier synthétique. L'API l'enregistre à la 1ère permission.
+        return new Folder
+        {
+            Id = 0,
+            Name = FtpPathUtil.GetName(path),
+            FtpPath = FtpPathUtil.Normalize(path),
+            OwnerId = _session.UserId
+        };
     }
 
     // =====================================================================
@@ -1180,12 +1180,13 @@ public sealed partial class FilesViewModel : ObservableObject
 
         try
         {
-            var token = GenerateShareToken();
-            await _db.EnsureSharesTableAsync();
-            await _db.CreateShareAsync(token, entry.FullPath, entry.Name, dialog.Mode, entry.IsDirectory, _session.UserId, dialog.ExpiresAtUtc);
+            // Le serveur génère le jeton (via l'API) et l'enregistre.
+            int? days = dialog.ExpiresAtUtc is { } e
+                ? Math.Max(1, (int)Math.Ceiling((e - DateTime.UtcNow).TotalDays))
+                : null;
+            var token = await _db.CreateShareAsync(entry.FullPath, dialog.Mode, entry.IsDirectory, days);
 
-            // Lien personnalisé par utilisateur : /u/<identifiant>/<jeton>. Le jeton reste
-            // la clé unique ; l'identifiant rend l'URL plus lisible (on voit qui partage).
+            // Lien personnalisé par utilisateur : /u/<identifiant>/<jeton>.
             var userSegment = Uri.EscapeDataString(
                 string.IsNullOrWhiteSpace(_session.UserName) ? "user" : _session.UserName);
             var url = $"{baseUrl.TrimEnd('/')}/u/{userSegment}/{token}";
@@ -1197,13 +1198,6 @@ public sealed partial class FilesViewModel : ObservableObject
         {
             _notify.Error("Partage impossible", ex.Message);
         }
-    }
-
-    private static string GenerateShareToken()
-    {
-        // 16 octets aléatoires -> base64 URL-safe (~22 caractères).
-        var bytes = System.Security.Cryptography.RandomNumberGenerator.GetBytes(16);
-        return Convert.ToBase64String(bytes).Replace('+', '-').Replace('/', '_').TrimEnd('=');
     }
 
     private void CopyToClipboard(string path)

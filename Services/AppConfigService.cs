@@ -50,6 +50,7 @@ public sealed class AppConfigService
                 config.DbPassword = Unprotect(config.DbPassword);
                 config.FtpPassword = Unprotect(config.FtpPassword);
                 config.RememberedPassword = Unprotect(config.RememberedPassword);
+                config.ApiToken = Unprotect(config.ApiToken);
                 foreach (var profile in config.Connections)
                 {
                     profile.DbPassword = Unprotect(profile.DbPassword);
@@ -111,6 +112,7 @@ public sealed class AppConfigService
             toStore.DbPassword = Protect(config.DbPassword);
             toStore.FtpPassword = Protect(config.FtpPassword);
             toStore.RememberedPassword = Protect(config.RememberedPassword);
+            toStore.ApiToken = Protect(config.ApiToken);
             // Copie profonde des connexions avec mots de passe chiffrés (Clone() est superficiel).
             toStore.Connections = config.Connections.Select(p =>
             {

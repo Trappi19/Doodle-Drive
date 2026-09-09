@@ -12,47 +12,62 @@ public sealed class AuthResult
     public static AuthResult Fail(string error) => new() { Success = false, Error = error };
 }
 
-/// <summary>Authentification par identifiant/mot de passe vérifié en BCrypt contre la table <c>users</c>.</summary>
+/// <summary>Authentification via l'API REST : identifiant/mot de passe -> jeton conservé par <see cref="ApiClient"/>.</summary>
 public sealed class AuthService
 {
-    private readonly DatabaseService _db;
+    private readonly ApiClient _api;
 
-    public AuthService(DatabaseService db) => _db = db;
+    public AuthService(ApiClient api) => _api = api;
 
     public async Task<AuthResult> LoginAsync(string username, string password, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(username) || string.IsNullOrEmpty(password))
             return AuthResult.Fail("Identifiant et mot de passe requis.");
-
-        User? user;
         try
         {
-            user = await _db.GetUserByUsernameAsync(username.Trim(), ct);
+            var user = await _api.LoginAsync(username.Trim(), password, ct);
+            return AuthResult.Ok(ToUser(user));
+        }
+        catch (ApiException ex)
+        {
+            return AuthResult.Fail(ex.Message);
         }
         catch (Exception ex)
         {
-            return AuthResult.Fail($"Impossible de joindre la base : {ex.Message}");
+            return AuthResult.Fail($"Serveur injoignable : {ex.Message}");
         }
-
-        if (user is null)
-            return AuthResult.Fail("Identifiant ou mot de passe incorrect.");
-
-        bool valid;
-        try
-        {
-            valid = BCrypt.Net.BCrypt.Verify(password, user.PasswordHash);
-        }
-        catch
-        {
-            // Hash mal formé en base.
-            valid = false;
-        }
-
-        return valid
-            ? AuthResult.Ok(user)
-            : AuthResult.Fail("Identifiant ou mot de passe incorrect.");
     }
 
-    /// <summary>Génère un hash BCrypt pour un nouveau mot de passe (création/réinitialisation de compte).</summary>
+    /// <summary>Reconnexion silencieuse via un jeton mémorisé (« rester connecté »).</summary>
+    public async Task<AuthResult> LoginWithTokenAsync(string token, CancellationToken ct = default)
+    {
+        _api.Token = token;
+        try
+        {
+            var user = await _api.MeAsync(ct);
+            return AuthResult.Ok(ToUser(user));
+        }
+        catch (Exception ex)
+        {
+            _api.Token = null;
+            return AuthResult.Fail(ex.Message);
+        }
+    }
+
+    /// <summary>Jeton courant (à mémoriser si « rester connecté »).</summary>
+    public string? CurrentToken => _api.Token;
+
+    public void SignOut() => _api.SignOut();
+
+    /// <summary>Hash BCrypt (encore utilisé par l'admin direct tant que sa migration API n'est pas faite).</summary>
     public static string HashPassword(string password) => BCrypt.Net.BCrypt.HashPassword(password, workFactor: 11);
+
+    private static User ToUser(ApiUser u) => new()
+    {
+        Id = u.Id,
+        Username = u.Username,
+        Role = string.Equals(u.Role, "admin", StringComparison.OrdinalIgnoreCase) ? UserRole.Admin : UserRole.User,
+        DefaultPath = u.DefaultPath,
+        LastPath = u.LastPath
+    };
 }

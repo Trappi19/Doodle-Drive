@@ -92,8 +92,7 @@ public partial class App : Application
 
     private void ShowLogin(bool allowAutoLogin = false)
     {
-        var vm = new LoginViewModel(_services.Config, _services.Auth, _services.Database,
-            _services.Ftp, _services.Session, _services.Notifications);
+        var vm = new LoginViewModel(_services.Config, _services.Auth, _services.Session, _services.Notifications);
         var window = new LoginWindow { DataContext = vm };
         var authenticated = false;
 
@@ -121,11 +120,11 @@ public partial class App : Application
         if (!background)
             window.Show();
 
-        // Connexion automatique si « Rester connecté » a mémorisé les identifiants.
-        // En cas d'échec (mot de passe changé, serveur injoignable), l'écran reste affiché.
+        // Reconnexion automatique via le jeton mémorisé (« rester connecté »).
+        // En cas d'échec (jeton expiré, serveur injoignable), l'écran reste affiché.
         if (allowAutoLogin && vm.CanAutoLogin)
         {
-            var loginTask = vm.LoginCommand.ExecuteAsync(null);
+            var loginTask = vm.TryAutoLoginAsync();
             if (background)
                 loginTask.ContinueWith(_ => Dispatch(() =>
                 {
@@ -165,6 +164,11 @@ public partial class App : Application
         {
             _returningToLogin = true;
             _services.Session.SignOut();
+            _services.Auth.SignOut();
+            // Oublier le jeton mémorisé : pas de reconnexion auto après une déconnexion volontaire.
+            var c = _services.Config.Current;
+            c.ApiToken = string.Empty;
+            _services.Config.Save(c);
             window.Close();
         };
 

@@ -17,6 +17,8 @@ public sealed class AppServices
         Auth = new AuthService(Api);
         Thumbnails = new ThumbnailService(Ftp);
         Dialogs = new DialogService();
+        Update = new UpdateService(Api);
+        Sync = new SyncService(Ftp);
     }
 
     public AppConfigService Config { get; }
@@ -31,4 +33,10 @@ public sealed class AppServices
     public AuthService Auth { get; }
     public ThumbnailService Thumbnails { get; }
     public DialogService Dialogs { get; }
+
+    /// <summary>Système de mise à jour de l'app (vérifie/télécharge/installe via le serveur).</summary>
+    public UpdateService Update { get; }
+
+    /// <summary>Moteur de synchronisation dossier local ↔ en ligne.</summary>
+    public SyncService Sync { get; }
 }

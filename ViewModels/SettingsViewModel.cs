@@ -33,13 +33,21 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         SaveCommand = new RelayCommand(Save);
         ResetConnectionCommand = new RelayCommand(ResetConnection);
+        CheckUpdatesCommand = new RelayCommand(() => CheckUpdatesRequested?.Invoke());
     }
 
     /// <summary>Demande la déconnexion (après réinitialisation de la connexion serveur).</summary>
     public event Action? SignOutRequested;
 
+    /// <summary>Demande une vérification de mise à jour (traitée par le Shell).</summary>
+    public event Action? CheckUpdatesRequested;
+
     public RelayCommand SaveCommand { get; }
     public RelayCommand ResetConnectionCommand { get; }
+    public RelayCommand CheckUpdatesCommand { get; }
+
+    /// <summary>Version installée (affichée dans la section Mises à jour).</summary>
+    public string AppVersion => UpdateService.CurrentVersionText;
 
     /// <summary>Seul un admin peut voir/modifier l'adresse du serveur (les users ne choisissent pas leur point d'entrée).</summary>
     public bool IsAdmin => _session.IsAdmin;

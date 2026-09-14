@@ -29,6 +29,10 @@ public sealed record ApiPermissions(bool Registered, int? FolderId, List<ApiPerm
 public sealed record ApiShare(string Token, string FtpPath, string FileName, string Mode, bool IsDir,
     DateTime CreatedAt, DateTime? ExpiresAt, bool Revoked, int ViewCount);
 public sealed record ApiShareCreated(string Token, string Path);
+public sealed record ApiUpdateInfo(string Version, string? Notes, string? Sha256);
+public sealed record ApiIdResult(int Id);
+public sealed record ApiSyncFolder(int Id, string MachineId, string MachineName, string LocalPath,
+    string RemotePath, bool AutoSync, DateTime CreatedAt, DateTime? LastSyncAt);
 
 /// <summary>
 /// Client HTTP unique de l'API Doodle Drive. Remplace les accès directs MariaDB/FTP :
@@ -120,10 +124,12 @@ public sealed class ApiClient
         await CopyWithProgressAsync(src, dst, total, progress, ct);
     }
 
-    public async Task UploadFileAsync(string dirPath, string name, string localFile, IProgress<double>? progress = null, CancellationToken ct = default)
+    public async Task UploadFileAsync(string dirPath, string name, string localFile,
+        IProgress<double>? progress = null, long? mtimeUnix = null, CancellationToken ct = default)
     {
         await using var src = new FileStream(localFile, FileMode.Open, FileAccess.Read, FileShare.Read);
-        using var req = Request(HttpMethod.Post, $"/api/upload?path={Enc(dirPath)}&name={Enc(name)}");
+        var url = $"/api/upload?path={Enc(dirPath)}&name={Enc(name)}" + (mtimeUnix is { } m ? $"&mtime={m}" : "");
+        using var req = Request(HttpMethod.Post, url);
         req.Content = new ProgressStreamContent(src, progress);
         using var res = await _http.SendAsync(req, ct);
         await EnsureOkAsync(res);
@@ -134,6 +140,55 @@ public sealed class ApiClient
 
     public Task RenameAsync(string path, string newName, CancellationToken ct = default) =>
         SendAsync(HttpMethod.Post, "/api/rename", new { path, newName }, ct);
+
+    /// <summary>Déplace un fichier/dossier (<paramref name="from"/>) dans le dossier <paramref name="toDir"/>.</summary>
+    public Task MoveAsync(string from, string toDir, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Post, "/api/move", new { from, toDir }, ct);
+
+    /// <summary>Copie un fichier/dossier (<paramref name="from"/>) dans le dossier <paramref name="toDir"/>.</summary>
+    public Task CopyAsync(string from, string toDir, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Post, "/api/copy", new { from, toDir }, ct);
+
+    // ---------- Dossiers de synchronisation ----------
+    public Task<List<ApiSyncFolder>> GetSyncFoldersAsync(CancellationToken ct = default) =>
+        SendJsonAsync<List<ApiSyncFolder>>(HttpMethod.Get, "/api/sync/folders", ct: ct);
+
+    public async Task<int> CreateSyncFolderAsync(string machineId, string machineName, string localPath,
+        string remotePath, bool autoSync, CancellationToken ct = default) =>
+        (await SendJsonAsync<ApiIdResult>(HttpMethod.Post, "/api/sync/folders",
+            new { machineId, machineName, localPath, remotePath, autoSync }, ct)).Id;
+
+    public Task SetSyncAutoAsync(int id, bool autoSync, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Post, "/api/sync/folders/auto", new { id, autoSync }, ct);
+
+    public Task TouchSyncAsync(int id, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Post, "/api/sync/folders/touch", new { id }, ct);
+
+    public Task DeleteSyncFolderAsync(int id, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Post, "/api/sync/folders/delete", new { id }, ct);
+
+    // ---------- Mise à jour de l'app ----------
+    /// <summary>Infos de la dernière version publiée, ou null si le serveur n'en publie aucune (204).</summary>
+    public async Task<ApiUpdateInfo?> GetUpdateInfoAsync(CancellationToken ct = default)
+    {
+        using var req = Request(HttpMethod.Get, "/api/update");
+        using var res = await _http.SendAsync(req, ct);
+        if (res.StatusCode == HttpStatusCode.NoContent) return null;
+        await EnsureOkAsync(res);
+        return await res.Content.ReadFromJsonAsync<ApiUpdateInfo>(Json, ct);
+    }
+
+    /// <summary>Télécharge l'installeur Windows le plus récent vers un fichier local.</summary>
+    public async Task DownloadAppInstallerAsync(string localFile, IProgress<double>? progress = null, CancellationToken ct = default)
+    {
+        using var req = Request(HttpMethod.Get, "/download/app");
+        using var res = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+        await EnsureOkAsync(res);
+        var total = res.Content.Headers.ContentLength ?? -1;
+        await using var src = await res.Content.ReadAsStreamAsync(ct);
+        await using var dst = new FileStream(localFile, FileMode.Create, FileAccess.Write, FileShare.None);
+        await CopyWithProgressAsync(src, dst, total, progress, ct);
+    }
 
     public Task DeleteAsync(string path, CancellationToken ct = default) =>
         SendAsync(HttpMethod.Post, "/api/delete", new { path }, ct);

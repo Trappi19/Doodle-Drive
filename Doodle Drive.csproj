@@ -11,7 +11,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <ApplicationIcon>assets\icon.ico</ApplicationIcon>
-    <Version>1.8.0</Version>
+    <!-- Version unique de l'app : doit correspondre à MyAppVersion dans setup\DoodleDrive.iss.
+         Lue à l'exécution pour le système de mise à jour (UpdateService). -->
+    <Version>2.0.7</Version>
     <Company>Doodle Drive</Company>
     <Product>Doodle Drive</Product>
     <Authors>Sevan Quesnot</Authors>

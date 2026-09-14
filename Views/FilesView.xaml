@@ -27,6 +27,15 @@
                       Command="{Binding PlacementTarget.Tag.ShareCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                       CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
             <Separator />
+            <MenuItem Header="Couper" InputGestureText="Ctrl+X"
+                      Command="{Binding PlacementTarget.Tag.CutCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+            <MenuItem Header="Copier" InputGestureText="Ctrl+C"
+                      Command="{Binding PlacementTarget.Tag.CopyCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+            <MenuItem Header="Coller" InputGestureText="Ctrl+V"
+                      Command="{Binding PlacementTarget.Tag.PasteCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+            <Separator />
             <MenuItem Header="Renommer"
                       Command="{Binding PlacementTarget.Tag.RenameCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                       CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
@@ -255,6 +264,7 @@
                     Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                 <TreeView x:Name="FolderTreeView" ItemsSource="{Binding FolderTree}"
                           Background="Transparent" BorderThickness="0" Padding="6"
+                          AllowDrop="True" DragOver="Tree_OnDragOver" Drop="Tree_OnDrop"
                           SelectedItemChanged="FolderTreeView_OnSelectedItemChanged">
                     <TreeView.ItemContainerStyle>
                         <Style TargetType="TreeViewItem" BasedOn="{StaticResource {x:Type TreeViewItem}}">
@@ -299,9 +309,26 @@
                         <ListBox x:Name="GridList" ItemsSource="{Binding Entries}"
                                  Background="Transparent" BorderThickness="0" Padding="8"
                                  SelectionMode="Extended"
+                                 AllowDrop="True"
+                                 PreviewMouseLeftButtonDown="Items_OnPreviewMouseLeftButtonDown"
+                                 PreviewMouseMove="Items_OnPreviewMouseMove"
+                                 DragOver="Items_OnDragOver" Drop="Items_OnDrop"
                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                                  ItemTemplate="{StaticResource GridItemTemplate}"
                                  Visibility="{Binding IsGridView, Converter={StaticResource BoolToVis}}">
+                            <ListBox.InputBindings>
+                                <KeyBinding Key="X" Modifiers="Control" Command="{Binding CutCommand}" />
+                                <KeyBinding Key="C" Modifiers="Control" Command="{Binding CopyCommand}" />
+                                <KeyBinding Key="V" Modifiers="Control" Command="{Binding PasteCommand}" />
+                            </ListBox.InputBindings>
+                            <ListBox.ContextMenu>
+                                <ContextMenu>
+                                    <MenuItem Header="Coller" InputGestureText="Ctrl+V"
+                                              Command="{Binding PlacementTarget.DataContext.PasteCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                                    <MenuItem Header="Nouveau dossier"
+                                              Command="{Binding PlacementTarget.DataContext.NewFolderCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                                </ContextMenu>
+                            </ListBox.ContextMenu>
                             <ListBox.ItemsPanel>
                                 <ItemsPanelTemplate>
                                     <WrapPanel Orientation="Horizontal" />
@@ -319,7 +346,24 @@
                         <!-- Vue liste -->
                         <ui:ListView x:Name="DetailList" ItemsSource="{Binding Entries}"
                                   Background="Transparent" BorderThickness="0"
+                                  AllowDrop="True"
+                                  PreviewMouseLeftButtonDown="Items_OnPreviewMouseLeftButtonDown"
+                                  PreviewMouseMove="Items_OnPreviewMouseMove"
+                                  DragOver="Items_OnDragOver" Drop="Items_OnDrop"
                                   Visibility="{Binding IsGridView, Converter={StaticResource InverseBoolToVis}}">
+                            <ui:ListView.InputBindings>
+                                <KeyBinding Key="X" Modifiers="Control" Command="{Binding CutCommand}" />
+                                <KeyBinding Key="C" Modifiers="Control" Command="{Binding CopyCommand}" />
+                                <KeyBinding Key="V" Modifiers="Control" Command="{Binding PasteCommand}" />
+                            </ui:ListView.InputBindings>
+                            <ui:ListView.ContextMenu>
+                                <ContextMenu>
+                                    <MenuItem Header="Coller" InputGestureText="Ctrl+V"
+                                              Command="{Binding PlacementTarget.DataContext.PasteCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                                    <MenuItem Header="Nouveau dossier"
+                                              Command="{Binding PlacementTarget.DataContext.NewFolderCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                                </ContextMenu>
+                            </ui:ListView.ContextMenu>
                             <ui:ListView.ItemContainerStyle>
                                 <Style TargetType="{x:Type ui:ListViewItem}" BasedOn="{StaticResource {x:Type ui:ListViewItem}}">
                                     <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay}" />

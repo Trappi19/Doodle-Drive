@@ -26,6 +26,10 @@ public sealed partial class FilesViewModel : ObservableObject
 
     private List<(Folder Folder, FolderAccessLevel Access)> _accessible = new();
     private readonly List<FileEntryViewModel> _allEntries = new();
+
+    // Presse-papiers interne (Couper/Copier/Coller).
+    private readonly List<FileEntryViewModel> _clipboard = new();
+    private bool _clipboardCut;
     private CancellationTokenSource? _thumbCts;
     private CancellationTokenSource? _openCts;
     private bool _isProcessingUploads;
@@ -77,6 +81,9 @@ public sealed partial class FilesViewModel : ObservableObject
         CancelOpenCommand = new RelayCommand(() => _openCts?.Cancel());
         ZoomInCommand = new RelayCommand(() => Zoom = Math.Min(MaxZoom, Zoom + 0.15));
         ZoomOutCommand = new RelayCommand(() => Zoom = Math.Max(MinZoom, Zoom - 0.15));
+        CutCommand = new RelayCommand<FileEntryViewModel?>(entry => SetClipboard(entry, cut: true));
+        CopyCommand = new RelayCommand<FileEntryViewModel?>(entry => SetClipboard(entry, cut: false));
+        PasteCommand = new AsyncRelayCommand(PasteAsync, () => HasClipboard && CanWriteCurrent);
 
         _zoom = Math.Clamp(configService.Current.GridZoom <= 0 ? 1.0 : configService.Current.GridZoom, MinZoom, MaxZoom);
 
@@ -150,6 +157,9 @@ public sealed partial class FilesViewModel : ObservableObject
     public RelayCommand CancelOpenCommand { get; }
     public RelayCommand ZoomInCommand { get; }
     public RelayCommand ZoomOutCommand { get; }
+    public RelayCommand<FileEntryViewModel?> CutCommand { get; }
+    public RelayCommand<FileEntryViewModel?> CopyCommand { get; }
+    public AsyncRelayCommand PasteCommand { get; }
 
     // ----- Collections -----
     public ObservableCollection<FolderNode> FolderTree { get; } = new();
@@ -170,6 +180,7 @@ public sealed partial class FilesViewModel : ObservableObject
     [ObservableProperty] private bool _isLoadingContent;
     [ObservableProperty] private string _searchText = string.Empty;
     [ObservableProperty] private int _selectedCount;
+    [ObservableProperty] private bool _hasClipboard;
     [ObservableProperty] private FolderAccessLevel _currentAccess = FolderAccessLevel.None;
     [ObservableProperty] private string _emptyMessage = "Ce dossier est vide.";
 
@@ -666,6 +677,7 @@ public sealed partial class FilesViewModel : ObservableObject
         DeleteSelectedCommand.NotifyCanExecuteChanged();
         DownloadSelectedCommand.NotifyCanExecuteChanged();
         UploadFilesCommand.NotifyCanExecuteChanged();
+        PasteCommand.NotifyCanExecuteChanged();
         ManageAccessCommand.NotifyCanExecuteChanged();
         NavigateUpCommand.NotifyCanExecuteChanged();
         NavigateBackCommand.NotifyCanExecuteChanged();
@@ -675,6 +687,7 @@ public sealed partial class FilesViewModel : ObservableObject
 
     partial void OnIsBusyChanged(bool value) => RaiseContextChanged();
     partial void OnCurrentAccessChanged(FolderAccessLevel value) => RaiseContextChanged();
+    partial void OnHasClipboardChanged(bool value) => PasteCommand.NotifyCanExecuteChanged();
 
     // =====================================================================
     //  Ouverture / prévisualisation
@@ -987,6 +1000,159 @@ public sealed partial class FilesViewModel : ObservableObject
             _isProcessingDownloads = false;
             OnPropertyChanged(nameof(HasActiveDownloads));
         }
+    }
+
+    // =====================================================================
+    //  Déplacement interne (glisser-déposer d'une sélection vers un dossier)
+    // =====================================================================
+
+    /// <summary>
+    /// Déplace des éléments (fichiers/dossiers) vers <paramref name="destDir"/> — appelé par la vue
+    /// lors d'un glisser-déposer interne (sur un dossier de la grille ou un nœud de l'arbre).
+    /// Ignore les éléments déjà dans la cible et refuse de déplacer un dossier dans lui-même.
+    /// </summary>
+    public async Task MoveEntriesAsync(IReadOnlyList<FileEntryViewModel> items, string destDir)
+    {
+        if (items is null || items.Count == 0) return;
+        destDir = FtpPathUtil.Normalize(destDir);
+
+        if (!_session.IsAdmin && !AccessForPath(destDir).CanWrite())
+        {
+            _notify.Warning("Déplacement refusé", "Vous n'avez pas les droits d'écriture sur le dossier de destination.");
+            return;
+        }
+
+        var toMove = new List<FileEntryViewModel>();
+        foreach (var item in items)
+        {
+            if (FtpPathUtil.GetParent(item.FullPath) == destDir) continue; // déjà dans la cible
+            if (item.IsDirectory &&
+                (FtpPathUtil.Normalize(item.FullPath) == destDir || FtpPathUtil.IsWithin(destDir, item.FullPath)))
+            {
+                _notify.Warning("Déplacement impossible", $"« {item.Name} » ne peut pas être déplacé dans lui-même.");
+                continue;
+            }
+            toMove.Add(item);
+        }
+        if (toMove.Count == 0) return;
+
+        IsBusy = true;
+        var errors = 0;
+        foreach (var item in toMove)
+        {
+            try
+            {
+                await _ftp.MoveAsync(item.FullPath, destDir);
+            }
+            catch (Exception ex)
+            {
+                errors++;
+                _notify.Error("Déplacement impossible", $"{item.Name} : {ex.Message}");
+            }
+        }
+        IsBusy = false;
+
+        if (errors == 0)
+            _notify.Success("Déplacé", toMove.Count == 1
+                ? $"« {toMove[0].Name} » → {FtpPathUtil.GetName(destDir)}"
+                : $"{toMove.Count} éléments → {FtpPathUtil.GetName(destDir)}");
+
+        await NavigateToAsync(CurrentPath);
+        await LoadFolderTreeAsync();
+    }
+
+    // =====================================================================
+    //  Presse-papiers : Couper / Copier / Coller
+    // =====================================================================
+
+    /// <summary>Éléments visés par une action : la sélection si l'élément en fait partie, sinon lui seul.</summary>
+    private List<FileEntryViewModel> BuildActionSet(FileEntryViewModel? entry)
+    {
+        var sel = _allEntries.Where(e => e.IsSelected).ToList();
+        if (entry is null) return sel;
+        return entry.IsSelected && sel.Count > 0 ? sel : new List<FileEntryViewModel> { entry };
+    }
+
+    private void SetClipboard(FileEntryViewModel? entry, bool cut)
+    {
+        var set = BuildActionSet(entry);
+        if (set.Count == 0) return;
+        _clipboard.Clear();
+        _clipboard.AddRange(set);
+        _clipboardCut = cut;
+        HasClipboard = true;
+        _notify.Info(cut ? "Coupé" : "Copié",
+            set.Count == 1 ? set[0].Name : $"{set.Count} éléments");
+    }
+
+    private async Task PasteAsync()
+    {
+        if (_clipboard.Count == 0) return;
+        if (!CanWriteCurrent)
+        {
+            _notify.Warning("Collage refusé", "Vous n'avez pas les droits d'écriture ici.");
+            return;
+        }
+
+        var items = _clipboard.ToList();
+        if (_clipboardCut)
+        {
+            await MoveEntriesAsync(items, CurrentPath);
+            _clipboard.Clear();
+            HasClipboard = false; // couper = collage unique
+        }
+        else
+        {
+            await CopyEntriesAsync(items, CurrentPath);
+        }
+    }
+
+    /// <summary>Copie des éléments vers <paramref name="destDir"/> (le serveur ajoute « (copie) » si conflit).</summary>
+    public async Task CopyEntriesAsync(IReadOnlyList<FileEntryViewModel> items, string destDir)
+    {
+        if (items is null || items.Count == 0) return;
+        destDir = FtpPathUtil.Normalize(destDir);
+
+        if (!_session.IsAdmin && !AccessForPath(destDir).CanWrite())
+        {
+            _notify.Warning("Copie refusée", "Vous n'avez pas les droits d'écriture sur le dossier de destination.");
+            return;
+        }
+
+        var toCopy = new List<FileEntryViewModel>();
+        foreach (var item in items)
+        {
+            if (item.IsDirectory &&
+                (FtpPathUtil.Normalize(item.FullPath) == destDir || FtpPathUtil.IsWithin(destDir, item.FullPath)))
+            {
+                _notify.Warning("Copie impossible", $"« {item.Name} » ne peut pas être copié dans lui-même.");
+                continue;
+            }
+            toCopy.Add(item);
+        }
+        if (toCopy.Count == 0) return;
+
+        IsBusy = true;
+        var errors = 0;
+        foreach (var item in toCopy)
+        {
+            try
+            {
+                await _ftp.CopyAsync(item.FullPath, destDir);
+            }
+            catch (Exception ex)
+            {
+                errors++;
+                _notify.Error("Copie impossible", $"{item.Name} : {ex.Message}");
+            }
+        }
+        IsBusy = false;
+
+        if (errors == 0)
+            _notify.Success("Copié", toCopy.Count == 1 ? $"« {toCopy[0].Name} »" : $"{toCopy.Count} éléments");
+
+        await NavigateToAsync(CurrentPath);
+        await LoadFolderTreeAsync();
     }
 
     // =====================================================================

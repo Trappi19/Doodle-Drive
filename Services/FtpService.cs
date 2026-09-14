@@ -68,12 +68,21 @@ public sealed class FtpService
     public Task RenameAsync(string fromPath, string toPath, CancellationToken ct = default) =>
         _api.RenameAsync(FtpPathUtil.Normalize(fromPath), FtpPathUtil.GetName(toPath), ct);
 
+    /// <summary>Déplace un fichier/dossier dans un autre dossier (le nom est conservé).</summary>
+    public Task MoveAsync(string fromPath, string toDir, CancellationToken ct = default) =>
+        _api.MoveAsync(FtpPathUtil.Normalize(fromPath), FtpPathUtil.Normalize(toDir), ct);
+
+    /// <summary>Copie un fichier/dossier dans un autre dossier (renommé « (copie) » si conflit).</summary>
+    public Task CopyAsync(string fromPath, string toDir, CancellationToken ct = default) =>
+        _api.CopyAsync(FtpPathUtil.Normalize(fromPath), FtpPathUtil.Normalize(toDir), ct);
+
     public async Task<bool> UploadAsync(
         string localPath, string remotePath,
-        IProgress<double>? progress = null, CancellationToken ct = default)
+        IProgress<double>? progress = null, long? mtimeUnix = null, CancellationToken ct = default)
     {
         remotePath = FtpPathUtil.Normalize(remotePath);
-        await _api.UploadFileAsync(FtpPathUtil.GetParent(remotePath), FtpPathUtil.GetName(remotePath), localPath, progress, ct);
+        await _api.UploadFileAsync(FtpPathUtil.GetParent(remotePath), FtpPathUtil.GetName(remotePath),
+            localPath, progress, mtimeUnix, ct);
         return true;
     }
 

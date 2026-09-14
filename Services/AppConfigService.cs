@@ -21,6 +21,13 @@ public sealed class AppConfigService
             "DoodleDrive");
         _filePath = Path.Combine(_directory, "config.json");
         Current = Load();
+
+        // Identifiant stable de cette machine (généré une seule fois puis persisté).
+        if (string.IsNullOrWhiteSpace(Current.MachineId))
+        {
+            Current.MachineId = Guid.NewGuid().ToString("N");
+            Save(Current);
+        }
     }
 
     /// <summary>Configuration active en mémoire.</summary>

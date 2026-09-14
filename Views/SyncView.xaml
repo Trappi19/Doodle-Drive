@@ -1,0 +1,155 @@
+<UserControl x:Class="DoodleDrive.Views.SyncView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+             xmlns:vm="clr-namespace:DoodleDrive.ViewModels"
+             mc:Ignorable="d"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             d:DataContext="{d:DesignInstance vm:SyncViewModel}"
+             d:DesignHeight="600" d:DesignWidth="900">
+    <Grid Margin="20,16,20,16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- En-tête -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,12">
+            <TextBlock Text="Synchronisation" FontSize="24" FontWeight="Bold" />
+            <TextBlock Opacity="0.65">
+                <Run Text="Gardez des dossiers de cet ordinateur («" />
+                <Run Text="{Binding MachineName, Mode=OneWay}" FontWeight="SemiBold" />
+                <Run Text="») synchronisés avec votre drive, dans les deux sens." />
+            </TextBlock>
+        </StackPanel>
+
+        <!-- Barre d'actions -->
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,12">
+            <ui:Button Command="{Binding AddCommand}" Appearance="Primary" Margin="0,0,8,0">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Style="{StaticResource GlyphText}" Text="&#xE710;" FontSize="15" Margin="0,0,6,0" />
+                    <TextBlock Text="Ajouter un dossier" />
+                </StackPanel>
+            </ui:Button>
+            <ui:Button Command="{Binding SyncAllCommand}" Appearance="Secondary" Margin="0,0,8,0">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Style="{StaticResource GlyphText}" Text="&#xE895;" FontSize="15" Margin="0,0,6,0" />
+                    <TextBlock Text="Tout synchroniser" />
+                </StackPanel>
+            </ui:Button>
+            <ui:Button Command="{Binding RefreshCommand}" Appearance="Secondary" ToolTip="Actualiser">
+                <TextBlock Style="{StaticResource GlyphText}" Text="&#xE72C;" FontSize="15" />
+            </ui:Button>
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+
+                <!-- Cette machine -->
+                <TextBlock Text="Cette machine" FontSize="16" FontWeight="SemiBold" Margin="2,0,0,8" />
+
+                <Border CornerRadius="10" Padding="18" Margin="0,0,0,16"
+                        Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                        Visibility="{Binding HasThisMachine, Converter={StaticResource InverseBoolToVis}}">
+                    <StackPanel HorizontalAlignment="Center" Margin="0,10">
+                        <TextBlock Style="{StaticResource GlyphText}" Text="&#xE8F7;" FontSize="40" Opacity="0.25" />
+                        <TextBlock Text="Aucun dossier synchronisé sur cette machine." Opacity="0.6" Margin="0,8,0,0" HorizontalAlignment="Center" />
+                        <TextBlock Text="Cliquez « Ajouter un dossier » pour commencer." Opacity="0.45" FontSize="12" Margin="0,2,0,0" HorizontalAlignment="Center" />
+                    </StackPanel>
+                </Border>
+
+                <ItemsControl ItemsSource="{Binding ThisMachine}"
+                              Visibility="{Binding HasThisMachine, Converter={StaticResource BoolToVis}}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="{x:Type vm:SyncFolderRowViewModel}">
+                            <Border CornerRadius="10" Padding="16" Margin="0,0,0,10"
+                                    Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                                    BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <!-- Infos -->
+                                    <StackPanel Grid.Column="0" Margin="0,0,12,0">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Style="{StaticResource GlyphText}" Text="&#xE8B7;" FontSize="15"
+                                                       Foreground="{StaticResource KindFolderBrush}" Margin="0,0,6,0" />
+                                            <TextBlock Text="{Binding LocalPath}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                            <TextBlock Text="&#xE8AB;" Style="{StaticResource GlyphText}" FontSize="13" Opacity="0.6" Margin="10,0" VerticalAlignment="Center" />
+                                            <TextBlock Style="{StaticResource GlyphText}" Text="&#xE753;" FontSize="15" Opacity="0.8" Margin="0,0,6,0" />
+                                            <TextBlock Text="{Binding RemotePath}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Opacity="0.85" />
+                                        </StackPanel>
+                                        <TextBlock Text="{Binding LastSyncText}" FontSize="11" Opacity="0.55" Margin="0,6,0,0" />
+                                        <TextBlock Text="{Binding Status}" FontSize="12" Opacity="0.9" Margin="0,2,0,0"
+                                                   Visibility="{Binding Status, Converter={StaticResource StringToVis}}" TextWrapping="Wrap" />
+                                    </StackPanel>
+
+                                    <!-- Actions -->
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <ui:ProgressRing Width="18" Height="18" IsIndeterminate="True" Margin="0,0,10,0"
+                                                         Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}" />
+                                        <StackPanel Margin="0,0,12,0" VerticalAlignment="Center">
+                                            <TextBlock Text="Auto" FontSize="10" Opacity="0.6" HorizontalAlignment="Center" />
+                                            <ui:ToggleSwitch IsChecked="{Binding AutoSync, Mode=TwoWay}" ToolTip="Synchroniser automatiquement" />
+                                        </StackPanel>
+                                        <ui:Button Appearance="Secondary" Margin="0,0,6,0" ToolTip="Vérifier les différences"
+                                                   Command="{Binding DataContext.CheckRowCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                   CommandParameter="{Binding}">
+                                            <TextBlock Style="{StaticResource GlyphText}" Text="&#xE721;" FontSize="15" />
+                                        </ui:Button>
+                                        <ui:Button Appearance="Primary" Margin="0,0,6,0" ToolTip="Synchroniser"
+                                                   Command="{Binding DataContext.SyncRowCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                   CommandParameter="{Binding}">
+                                            <TextBlock Style="{StaticResource GlyphText}" Text="&#xE895;" FontSize="15" />
+                                        </ui:Button>
+                                        <ui:Button Appearance="Secondary" ToolTip="Retirer"
+                                                   Command="{Binding DataContext.RemoveRowCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                   CommandParameter="{Binding}">
+                                            <TextBlock Style="{StaticResource GlyphText}" Text="&#xE74D;" FontSize="15" />
+                                        </ui:Button>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <!-- Autres machines -->
+                <TextBlock Text="Mes autres machines" FontSize="16" FontWeight="SemiBold" Margin="2,10,0,8"
+                           Visibility="{Binding HasOtherMachines, Converter={StaticResource BoolToVis}}" />
+
+                <ItemsControl ItemsSource="{Binding OtherMachines}"
+                              Visibility="{Binding HasOtherMachines, Converter={StaticResource BoolToVis}}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="{x:Type vm:SyncFolderRowViewModel}">
+                            <Border CornerRadius="10" Padding="14" Margin="0,0,0,8"
+                                    Background="{DynamicResource CardBackgroundFillColorSecondaryBrush}">
+                                <StackPanel>
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Style="{StaticResource GlyphText}" Text="&#xE977;" FontSize="14" Opacity="0.7" Margin="0,0,6,0" />
+                                        <TextBlock Text="{Binding MachineName}" FontWeight="SemiBold" />
+                                        <Border CornerRadius="8" Padding="6,1" Margin="10,0,0,0" VerticalAlignment="Center"
+                                                Background="{DynamicResource AccentFillColorDefaultBrush}"
+                                                Visibility="{Binding AutoSync, Converter={StaticResource BoolToVis}}">
+                                            <TextBlock Text="Auto" FontSize="10" Foreground="White" />
+                                        </Border>
+                                    </StackPanel>
+                                    <TextBlock Margin="20,4,0,0" FontSize="12" Opacity="0.8">
+                                        <Run Text="{Binding LocalPath, Mode=OneWay}" />
+                                        <Run Text="  →  " />
+                                        <Run Text="{Binding RemotePath, Mode=OneWay}" />
+                                    </TextBlock>
+                                    <TextBlock Text="{Binding LastSyncText}" Margin="20,2,0,0" FontSize="11" Opacity="0.5" />
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

@@ -66,5 +66,11 @@ public sealed class AppConfig
     /// </summary>
     public bool OpenWindowOnStartup { get; set; }
 
+    /// <summary>
+    /// Identifiant stable de CETTE machine (généré une fois), pour distinguer les
+    /// synchronisations d'une machine à l'autre sous le même compte.
+    /// </summary>
+    public string MachineId { get; set; } = string.Empty;
+
     public AppConfig Clone() => (AppConfig)MemberwiseClone();
 }

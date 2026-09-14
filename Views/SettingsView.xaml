@@ -69,6 +69,22 @@
                     </StackPanel>
                 </Border>
 
+                <!-- Mises à jour (tous les utilisateurs) -->
+                <Border CornerRadius="10" Padding="18" Margin="0,0,0,14"
+                        Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                    <StackPanel>
+                        <TextBlock Text="Mises à jour" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,6" />
+                        <TextBlock TextWrapping="Wrap" Opacity="0.7" FontSize="12" Margin="0,0,0,10">
+                            <Run Text="Version installée :" />
+                            <Run Text="{Binding AppVersion, Mode=OneWay}" FontWeight="SemiBold" />
+                            <LineBreak />
+                            <Run Text="L'application vérifie automatiquement les mises à jour au démarrage." />
+                        </TextBlock>
+                        <ui:Button Command="{Binding CheckUpdatesCommand}" Appearance="Secondary"
+                                   HorizontalAlignment="Left" Content="Rechercher des mises à jour" />
+                    </StackPanel>
+                </Border>
+
                 <!-- Connexion (tous les utilisateurs) -->
                 <Border CornerRadius="10" Padding="18" Margin="0,0,0,14"
                         Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">

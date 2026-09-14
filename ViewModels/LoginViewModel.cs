@@ -96,20 +96,36 @@ public sealed partial class LoginViewModel : ObservableObject
         }
     }
 
-    /// <summary>Reconnexion silencieuse via le jeton mémorisé. Renvoie true si réussie.</summary>
+    /// <summary>Reconnexion via le jeton mémorisé. Affiche l'état de chargement. Renvoie true si réussie.</summary>
     public async Task<bool> TryAutoLoginAsync()
     {
         var token = _configService.Current.ApiToken;
         if (string.IsNullOrEmpty(token) || string.IsNullOrWhiteSpace(ServerUrl)) return false;
-        SaveServerUrl();
 
-        var result = await _auth.LoginWithTokenAsync(token);
-        if (!result.Success || result.User is null) return false;
+        IsBusy = true;
+        SetStatus("Reconnexion…", false);
+        try
+        {
+            SaveServerUrl();
 
-        _session.SignIn(result.User);
-        Persist(result.User);
-        LoginSucceeded?.Invoke();
-        return true;
+            var result = await _auth.LoginWithTokenAsync(token);
+            if (!result.Success || result.User is null)
+            {
+                // Jeton expiré / serveur injoignable : on efface le chargement et l'écran
+                // reste affiché pour une connexion manuelle.
+                SetStatus(string.Empty, false);
+                return false;
+            }
+
+            _session.SignIn(result.User);
+            Persist(result.User);
+            LoginSucceeded?.Invoke();
+            return true;
+        }
+        finally
+        {
+            IsBusy = false;
+        }
     }
 
     private void Persist(User user)

@@ -3,6 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
              xmlns:vm="clr-namespace:DoodleDrive.ViewModels"
+             xmlns:v="clr-namespace:DoodleDrive.Views"
              mc:Ignorable="d"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -75,17 +76,23 @@
 
                                     <!-- Infos -->
                                     <StackPanel Grid.Column="0" Margin="0,0,12,0">
-                                        <StackPanel Orientation="Horizontal">
-                                            <TextBlock Style="{StaticResource GlyphText}" Text="&#xE8B7;" FontSize="15"
-                                                       Foreground="{StaticResource KindFolderBrush}" Margin="0,0,6,0" />
-                                            <TextBlock Text="{Binding LocalPath}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-                                            <TextBlock Text="&#xE8AB;" Style="{StaticResource GlyphText}" FontSize="13" Opacity="0.6" Margin="10,0" VerticalAlignment="Center" />
-                                            <TextBlock Style="{StaticResource GlyphText}" Text="&#xE753;" FontSize="15" Opacity="0.8" Margin="0,0,6,0" />
-                                            <TextBlock Text="{Binding RemotePath}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Opacity="0.85" />
-                                        </StackPanel>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Style="{StaticResource GlyphText}" Text="&#xE8B7;" FontSize="15"
+                                                       Foreground="{StaticResource KindFolderBrush}" Margin="0,0,8,0" VerticalAlignment="Center" />
+                                            <v:MarqueeTextBlock Grid.Column="1" Text="{Binding PathSummary}"
+                                                                Height="20" VerticalAlignment="Center"
+                                                                ToolTip="{Binding PathSummary}" />
+                                        </Grid>
                                         <TextBlock Text="{Binding LastSyncText}" FontSize="11" Opacity="0.55" Margin="0,6,0,0" />
                                         <TextBlock Text="{Binding Status}" FontSize="12" Opacity="0.9" Margin="0,2,0,0"
                                                    Visibility="{Binding Status, Converter={StaticResource StringToVis}}" TextWrapping="Wrap" />
+                                        <ProgressBar Height="4" Margin="0,6,0,0" Minimum="0" Maximum="100"
+                                                     Value="{Binding Progress}" IsIndeterminate="{Binding ProgressIndeterminate}"
+                                                     Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}" />
                                     </StackPanel>
 
                                     <!-- Actions -->
@@ -101,7 +108,17 @@
                                                    CommandParameter="{Binding}">
                                             <TextBlock Style="{StaticResource GlyphText}" Text="&#xE721;" FontSize="15" />
                                         </ui:Button>
-                                        <ui:Button Appearance="Primary" Margin="0,0,6,0" ToolTip="Synchroniser"
+                                        <ui:Button Appearance="Secondary" Margin="0,0,6,0" ToolTip="Envoyer (ordinateur → en ligne)"
+                                                   Command="{Binding DataContext.SendRowCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                   CommandParameter="{Binding}">
+                                            <TextBlock Style="{StaticResource GlyphText}" Text="&#xE898;" FontSize="15" />
+                                        </ui:Button>
+                                        <ui:Button Appearance="Secondary" Margin="0,0,6,0" ToolTip="Récupérer (en ligne → ordinateur)"
+                                                   Command="{Binding DataContext.FetchRowCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                   CommandParameter="{Binding}">
+                                            <TextBlock Style="{StaticResource GlyphText}" Text="&#xE896;" FontSize="15" />
+                                        </ui:Button>
+                                        <ui:Button Appearance="Primary" Margin="0,0,6,0" ToolTip="Synchroniser (les deux sens)"
                                                    Command="{Binding DataContext.SyncRowCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
                                                    CommandParameter="{Binding}">
                                             <TextBlock Style="{StaticResource GlyphText}" Text="&#xE895;" FontSize="15" />

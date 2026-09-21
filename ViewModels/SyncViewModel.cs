@@ -3,6 +3,7 @@ using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using DoodleDrive.Services;
+using DoodleDrive.Views.Dialogs;
 
 namespace DoodleDrive.ViewModels;
 
@@ -30,9 +31,14 @@ public sealed partial class SyncFolderRowViewModel : ObservableObject
     public string MachineName { get; }
     public bool IsThisMachine { get; }
 
+    /// <summary>Chemin complet « local ⇄ en ligne » (affiché en défilement au survol).</summary>
+    public string PathSummary => $"{LocalPath}    ⇄    {RemotePath}";
+
     [ObservableProperty] private bool _autoSync;
     [ObservableProperty] private bool _isBusy;
     [ObservableProperty] private string _status = string.Empty;
+    [ObservableProperty] private double _progress;
+    [ObservableProperty] private bool _progressIndeterminate;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(LastSyncText))]
@@ -53,15 +59,17 @@ public sealed partial class SyncViewModel : ObservableObject
 {
     private readonly ApiClient _api;
     private readonly SyncService _sync;
+    private readonly FtpService _ftp;
     private readonly AppConfigService _config;
     private readonly DialogService _dialogs;
     private readonly NotificationService _notify;
 
-    public SyncViewModel(ApiClient api, SyncService sync, AppConfigService config,
+    public SyncViewModel(ApiClient api, SyncService sync, FtpService ftp, AppConfigService config,
         DialogService dialogs, NotificationService notify)
     {
         _api = api;
         _sync = sync;
+        _ftp = ftp;
         _config = config;
         _dialogs = dialogs;
         _notify = notify;
@@ -69,7 +77,9 @@ public sealed partial class SyncViewModel : ObservableObject
         RefreshCommand = new AsyncRelayCommand(LoadAsync, () => !IsBusy);
         AddCommand = new AsyncRelayCommand(AddAsync, () => !IsBusy);
         SyncAllCommand = new AsyncRelayCommand(SyncAllAsync, () => !IsBusy && ThisMachine.Count > 0);
-        SyncRowCommand = new AsyncRelayCommand<SyncFolderRowViewModel?>(SyncRowAsync);
+        SendRowCommand = new AsyncRelayCommand<SyncFolderRowViewModel?>(r => RunSyncAsync(r, SyncDirection.Upload));
+        FetchRowCommand = new AsyncRelayCommand<SyncFolderRowViewModel?>(r => RunSyncAsync(r, SyncDirection.Download));
+        SyncRowCommand = new AsyncRelayCommand<SyncFolderRowViewModel?>(r => RunSyncAsync(r, SyncDirection.Both));
         CheckRowCommand = new AsyncRelayCommand<SyncFolderRowViewModel?>(CheckRowAsync);
         RemoveRowCommand = new AsyncRelayCommand<SyncFolderRowViewModel?>(RemoveRowAsync);
     }
@@ -86,6 +96,8 @@ public sealed partial class SyncViewModel : ObservableObject
     public AsyncRelayCommand RefreshCommand { get; }
     public AsyncRelayCommand AddCommand { get; }
     public AsyncRelayCommand SyncAllCommand { get; }
+    public AsyncRelayCommand<SyncFolderRowViewModel?> SendRowCommand { get; }
+    public AsyncRelayCommand<SyncFolderRowViewModel?> FetchRowCommand { get; }
     public AsyncRelayCommand<SyncFolderRowViewModel?> SyncRowCommand { get; }
     public AsyncRelayCommand<SyncFolderRowViewModel?> CheckRowCommand { get; }
     public AsyncRelayCommand<SyncFolderRowViewModel?> RemoveRowCommand { get; }
@@ -132,16 +144,21 @@ public sealed partial class SyncViewModel : ObservableObject
     {
         var local = _dialogs.PickDownloadFolder(_config.Current.LastDownloadFolder);
         if (string.IsNullOrWhiteSpace(local)) return;
+        var localName = Path.GetFileName(local.TrimEnd('\\', '/'));
 
-        var suggested = "/" + Path.GetFileName(local.TrimEnd('\\', '/'));
-        var remote = _dialogs.Prompt("Emplacement en ligne",
-            "Dossier en ligne où synchroniser ce dossier (créé automatiquement s'il n'existe pas) :", suggested);
+        // Sélecteur navigable du drive (+ case « créer un sous-dossier au même nom »).
+        var picker = new RemoteFolderPickerDialog(_ftp, _config.Current.FtpRootPath, localName);
+        App.SetOwner(picker);
+        if (picker.ShowDialog() != true) return;
+
+        var remote = picker.ResolvedPath;
         if (string.IsNullOrWhiteSpace(remote)) return;
+        remote = FtpPathUtil.Normalize(remote);
 
         try
         {
-            await _api.CreateSyncFolderAsync(_config.Current.MachineId, MachineName, local, FtpPathUtil.Normalize(remote), false);
-            _notify.Success("Synchronisation ajoutée", $"{Path.GetFileName(local.TrimEnd('\\', '/'))} ↔ {FtpPathUtil.Normalize(remote)}");
+            await _api.CreateSyncFolderAsync(_config.Current.MachineId, MachineName, local, remote, false);
+            _notify.Success("Synchronisation ajoutée", $"{localName} ↔ {remote}");
             await LoadAsync();
         }
         catch (Exception ex)
@@ -180,46 +197,58 @@ public sealed partial class SyncViewModel : ObservableObject
         }
     }
 
-    private async Task SyncRowAsync(SyncFolderRowViewModel? row)
-    {
-        if (row is null || row.IsBusy) return;
-        await RunSyncAsync(row);
-    }
-
     private async Task SyncAllAsync()
     {
         foreach (var row in ThisMachine.ToList())
-            await RunSyncAsync(row);
+            await RunSyncAsync(row, SyncDirection.Both);
     }
 
-    private async Task RunSyncAsync(SyncFolderRowViewModel row)
+    private async Task RunSyncAsync(SyncFolderRowViewModel? row, SyncDirection direction)
     {
+        if (row is null || row.IsBusy) return;
+
+        var (running, doneVerb) = direction switch
+        {
+            SyncDirection.Upload => ("Envoi…", "Envoi"),
+            SyncDirection.Download => ("Réception…", "Réception"),
+            _ => ("Synchronisation…", "Synchronisation")
+        };
+
         row.IsBusy = true;
-        row.Status = "Synchronisation…";
+        row.Status = running;
+        row.Progress = 0;
+        row.ProgressIndeterminate = true; // le temps du diff (avant le 1er transfert)
         try
         {
-            var progress = new Progress<string>(s => row.Status = s);
-            var res = await _sync.SyncAsync(row.LocalPath, row.RemotePath, progress);
+            var progress = new Progress<SyncProgress>(sp =>
+            {
+                row.ProgressIndeterminate = false;
+                row.Progress = sp.Percent;
+                row.Status = string.IsNullOrEmpty(sp.CurrentFile)
+                    ? running
+                    : $"{doneVerb} {sp.Done}/{sp.Total} — {sp.CurrentFile}";
+            });
+            var res = await _sync.SyncAsync(row.LocalPath, row.RemotePath, direction, progress);
             await _api.TouchSyncAsync(row.Id);
             row.LastSyncAt = DateTime.UtcNow;
 
             if (res.Failed == 0)
             {
-                row.Status = res.Changed == 0 ? "À jour — rien à échanger." : $"Terminé — {res.Changed} fichier(s) synchronisé(s).";
-                _notify.Success("Synchronisation terminée",
+                row.Status = res.Changed == 0 ? "À jour — rien à échanger." : $"Terminé — {res.Changed} fichier(s).";
+                _notify.Success($"{doneVerb} terminé",
                     $"{FtpPathUtil.GetName(row.RemotePath)} : {res.Changed} fichier(s).");
             }
             else
             {
-                row.Status = $"{res.Changed} synchronisé(s), {res.Failed} échec(s).";
-                _notify.Warning("Synchronisation terminée avec erreurs",
+                row.Status = $"{res.Changed} ok, {res.Failed} échec(s).";
+                _notify.Warning($"{doneVerb} terminé avec erreurs",
                     $"{res.Changed} ok, {res.Failed} échec(s).");
             }
         }
         catch (Exception ex)
         {
-            row.Status = "Échec de la synchronisation.";
-            _notify.Error("Synchronisation impossible", ex.Message);
+            row.Status = "Échec de l'opération.";
+            _notify.Error("Opération impossible", ex.Message);
         }
         finally
         {

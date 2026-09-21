@@ -1,0 +1,73 @@
+<ui:FluentWindow x:Class="DoodleDrive.Views.Dialogs.PropertiesDialog"
+                 xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                 xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+                 xmlns:vm="clr-namespace:DoodleDrive.ViewModels"
+                 mc:Ignorable="d"
+                 xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+                 xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+                 d:DataContext="{d:DesignInstance vm:PropertiesViewModel}"
+                 Title="Propriétés"
+                 Width="440" SizeToContent="Height"
+                 WindowStartupLocation="CenterOwner"
+                 ExtendsContentIntoTitleBar="True"
+                 WindowCornerPreference="Round"
+                 ResizeMode="NoResize">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <ui:TitleBar Grid.Row="0" Title="Propriétés" ShowMaximize="False" ShowMinimize="False" />
+
+        <!-- En-tête : glyphe + nom -->
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="20,6,20,14" VerticalAlignment="Center">
+            <TextBlock Style="{StaticResource GlyphText}" Text="{Binding Glyph}" FontSize="40"
+                       Foreground="{Binding AccentBrushKey, Converter={StaticResource KeyToBrush}}"
+                       Margin="0,0,16,0" VerticalAlignment="Center" />
+            <TextBlock Text="{Binding Title}" FontSize="17" FontWeight="SemiBold"
+                       VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="320" />
+        </StackPanel>
+
+        <Border Grid.Row="2" Margin="20,0,20,0" Height="1" Background="{DynamicResource CardStrokeColorDefaultBrush}" />
+
+        <!-- Champs -->
+        <Grid Grid.Row="3" Margin="20,14,20,20">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" MinWidth="110" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="Type" Opacity="0.6" Margin="0,0,12,10" />
+            <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding TypeText}" Margin="0,0,0,10" TextWrapping="Wrap" />
+
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="Taille" Opacity="0.6" Margin="0,0,12,10" />
+            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding SizeText}" Margin="0,0,0,10" TextWrapping="Wrap" />
+
+            <TextBlock Grid.Row="2" Grid.Column="0" Text="Modifié le" Opacity="0.6" Margin="0,0,12,10"
+                       Visibility="{Binding IsSingle, Converter={StaticResource BoolToVis}}" />
+            <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding ModifiedText}" Margin="0,0,0,10"
+                       Visibility="{Binding IsSingle, Converter={StaticResource BoolToVis}}" />
+
+            <TextBlock Grid.Row="3" Grid.Column="0" Text="Emplacement" Opacity="0.6" Margin="0,0,12,10" />
+            <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding LocationText}" Margin="0,0,0,10"
+                       TextWrapping="Wrap" />
+
+            <TextBlock Grid.Row="4" Grid.Column="0" Text="{Binding FullPathLabel}" Opacity="0.6" Margin="0,0,12,0" />
+            <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding FullPathText, Mode=OneWay}"
+                     IsReadOnly="True" TextWrapping="Wrap" MaxHeight="120"
+                     Background="Transparent" BorderThickness="0" Padding="0"
+                     VerticalScrollBarVisibility="Auto" />
+        </Grid>
+    </Grid>
+</ui:FluentWindow>

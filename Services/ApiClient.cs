@@ -44,7 +44,13 @@ public sealed class ApiClient
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromMinutes(30) };
     private readonly Func<string> _baseUrl;
 
-    public ApiClient(Func<string> baseUrlProvider) => _baseUrl = baseUrlProvider;
+    public ApiClient(Func<string> baseUrlProvider)
+    {
+        _baseUrl = baseUrlProvider;
+        // Ne jamais envoyer « Expect: 100-continue » : Tailscale Funnel le gère mal
+        // et casse la connexion sur les envois de fichiers.
+        _http.DefaultRequestHeaders.ExpectContinue = false;
+    }
 
     /// <summary>Jeton d'authentification courant (envoyé en Bearer). Défini au login.</summary>
     public string? Token { get; set; }
@@ -133,6 +139,95 @@ public sealed class ApiClient
         req.Content = new ProgressStreamContent(src, progress);
         using var res = await _http.SendAsync(req, ct);
         await EnsureOkAsync(res);
+    }
+
+    // ---------- Envoi par morceaux (résiste aux coupures Wi-Fi : réessai + reprise) ----------
+    /// <summary>Taille d'une tranche (transfert court → survit aux blips réseau).</summary>
+    public const int UploadChunkSize = 8 * 1024 * 1024;
+    private const int MaxChunkRetries = 5;
+
+    private sealed record ProbeResult(long Uploaded);
+
+    /// <summary>Octets déjà reçus par le serveur pour cet envoi (lance une exception en cas d'échec).</summary>
+    public async Task<long> ProbeUploadAsync(string dirPath, string uploadId, CancellationToken ct = default)
+    {
+        var r = await SendJsonAsync<ProbeResult>(HttpMethod.Get,
+            $"/api/upload/probe?path={Enc(dirPath)}&id={uploadId}", ct: ct);
+        return r.Uploaded;
+    }
+
+    public Task AbortUploadAsync(string dirPath, string uploadId, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Post, $"/api/upload/abort?path={Enc(dirPath)}&id={uploadId}", ct: ct);
+
+    /// <summary>
+    /// Envoie un fichier en tranches. En cas de coupure, réessaie chaque tranche (jusqu'à
+    /// <see cref="MaxChunkRetries"/>) en resynchronisant l'offset auprès du serveur, et
+    /// reprend là où il en était (même <paramref name="uploadId"/>).
+    /// </summary>
+    public async Task UploadFileChunkedAsync(string dirPath, string name, string localFile, string uploadId,
+        IProgress<double>? progress = null, long? mtimeUnix = null, CancellationToken ct = default)
+    {
+        await using var src = new FileStream(localFile, FileMode.Open, FileAccess.Read, FileShare.Read);
+        var total = src.Length;
+
+        long uploaded;
+        try { uploaded = Math.Min(await ProbeUploadAsync(dirPath, uploadId, ct), total); }
+        catch { uploaded = 0; }
+        if (total > 0) progress?.Report(uploaded * 100.0 / total);
+
+        var buffer = new byte[UploadChunkSize];
+        var attempt = 0;
+        while (true)
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                src.Seek(uploaded, SeekOrigin.Begin);
+                var read = await FillAsync(src, buffer, ct);
+                var last = uploaded + read >= total;
+
+                var url = $"/api/upload/chunk?path={Enc(dirPath)}&name={Enc(name)}&id={uploadId}&last={(last ? "true" : "false")}"
+                          + (last && mtimeUnix is { } m ? $"&mtime={m}" : "");
+                using var req = Request(HttpMethod.Post, url);
+
+                // Progression fluide : on remonte l'avancement PENDANT l'envoi de la tranche.
+                var before = uploaded;
+                using var chunkStream = new MemoryStream(buffer, 0, read, writable: false);
+                IProgress<double>? chunkProgress = total > 0
+                    ? new Progress<double>(pct => progress?.Report(Math.Min(before + pct / 100.0 * read, total) * 100.0 / total))
+                    : null;
+                req.Content = new ProgressStreamContent(chunkStream, chunkProgress);
+
+                using var res = await _http.SendAsync(req, ct);
+                await EnsureOkAsync(res);
+
+                uploaded += read;
+                if (total > 0) progress?.Report(Math.Min(uploaded, total) * 100.0 / total);
+                attempt = 0;              // tranche réussie : on repart à zéro pour la suivante
+                if (last) break;
+            }
+            catch (OperationCanceledException) { throw; }
+            catch when (attempt < MaxChunkRetries)
+            {
+                attempt++;
+                await Task.Delay(TimeSpan.FromSeconds(Math.Min(2 * attempt, 8)), ct);
+                // Resynchronise l'offset : le serveur a pu écrire une partie de la tranche.
+                try { uploaded = Math.Min(await ProbeUploadAsync(dirPath, uploadId, ct), total); }
+                catch { /* échec du probe : on garde l'offset courant et on réessaie */ }
+            }
+        }
+    }
+
+    private static async Task<int> FillAsync(Stream s, byte[] buf, CancellationToken ct)
+    {
+        var total = 0;
+        while (total < buf.Length)
+        {
+            var r = await s.ReadAsync(buf.AsMemory(total, buf.Length - total), ct);
+            if (r == 0) break;
+            total += r;
+        }
+        return total;
     }
 
     public Task MkdirAsync(string path, string name, CancellationToken ct = default) =>

@@ -115,6 +115,12 @@ public sealed class DatabaseService
 
     public Task RevokeShareAsync(string token, CancellationToken ct = default) => _api.RevokeShareAsync(token, ct);
 
+    // ---------- Synchronisations (utilisé aussi par la suppression de fichiers) ----------
+    public async Task<IReadOnlyList<ApiSyncFolder>> GetSyncFoldersAsync(CancellationToken ct = default) =>
+        await _api.GetSyncFoldersAsync(ct);
+
+    public Task DeleteSyncFolderAsync(int id, CancellationToken ct = default) => _api.DeleteSyncFolderAsync(id, ct);
+
     // ---------- Mappings ----------
     private static User ToUser(ApiAdminUser u) => new()
     {

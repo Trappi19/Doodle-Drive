@@ -20,7 +20,7 @@ public sealed partial class ShellViewModel : ObservableObject
         Settings.SignOutRequested += () => SignedOut?.Invoke();
         Settings.CheckUpdatesRequested += () => _ = RunUpdateFlowAsync(manual: true);
         Shares = new SharesViewModel(services.Database, services.Notifications, services.Session, services.Config, services.Dialogs);
-        Sync = new SyncViewModel(services.Api, services.Sync, services.Config, services.Dialogs, services.Notifications);
+        Sync = new SyncViewModel(services.Api, services.Sync, services.Ftp, services.Config, services.Dialogs, services.Notifications);
         if (services.Session.IsAdmin)
             Admin = new AdminViewModel(services.Database, services.Dialogs, services.Notifications, services.Session);
 
@@ -222,10 +222,18 @@ public sealed partial class ShellViewModel : ObservableObject
         await Shares.LoadAsync();
     }
 
+    private bool _syncInitialized;
+
     private async Task GoSyncAsync()
     {
         CurrentPage = Sync;
-        await Sync.LoadAsync();
+        // Chargé une seule fois : une synchro en cours n'est pas interrompue/rechargée
+        // quand on quitte puis revient sur l'onglet (elle continue en arrière-plan).
+        if (!_syncInitialized)
+        {
+            _syncInitialized = true;
+            await Sync.LoadAsync();
+        }
     }
 
     private void GoSettings() => CurrentPage = Settings;

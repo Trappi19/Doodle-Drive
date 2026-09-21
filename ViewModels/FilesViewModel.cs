@@ -77,6 +77,9 @@ public sealed partial class FilesViewModel : ObservableObject
         SetSortCommand = new RelayCommand<string?>(SetSort);
         ClearSearchCommand = new RelayCommand(() => SearchText = string.Empty);
         SignalUploadPanelCommand = new RelayCommand(() => IsUploadPanelOpen = !IsUploadPanelOpen);
+        CancelUploadCommand = new RelayCommand<UploadItemViewModel?>(CancelUpload);
+        PauseUploadCommand = new RelayCommand<UploadItemViewModel?>(PauseUpload);
+        ResumeUploadCommand = new AsyncRelayCommand<UploadItemViewModel?>(ResumeUploadAsync);
         SignalDownloadPanelCommand = new RelayCommand(() => IsDownloadPanelOpen = !IsDownloadPanelOpen);
         CancelOpenCommand = new RelayCommand(() => _openCts?.Cancel());
         ZoomInCommand = new RelayCommand(() => Zoom = Math.Min(MaxZoom, Zoom + 0.15));
@@ -84,6 +87,7 @@ public sealed partial class FilesViewModel : ObservableObject
         CutCommand = new RelayCommand<FileEntryViewModel?>(entry => SetClipboard(entry, cut: true));
         CopyCommand = new RelayCommand<FileEntryViewModel?>(entry => SetClipboard(entry, cut: false));
         PasteCommand = new AsyncRelayCommand(PasteAsync, () => HasClipboard && CanWriteCurrent);
+        ShowPropertiesCommand = new RelayCommand<FileEntryViewModel?>(ShowProperties);
 
         _zoom = Math.Clamp(configService.Current.GridZoom <= 0 ? 1.0 : configService.Current.GridZoom, MinZoom, MaxZoom);
 
@@ -154,12 +158,16 @@ public sealed partial class FilesViewModel : ObservableObject
     public RelayCommand ClearSearchCommand { get; }
     public RelayCommand SignalUploadPanelCommand { get; }
     public RelayCommand SignalDownloadPanelCommand { get; }
+    public RelayCommand<UploadItemViewModel?> CancelUploadCommand { get; }
+    public RelayCommand<UploadItemViewModel?> PauseUploadCommand { get; }
+    public AsyncRelayCommand<UploadItemViewModel?> ResumeUploadCommand { get; }
     public RelayCommand CancelOpenCommand { get; }
     public RelayCommand ZoomInCommand { get; }
     public RelayCommand ZoomOutCommand { get; }
     public RelayCommand<FileEntryViewModel?> CutCommand { get; }
     public RelayCommand<FileEntryViewModel?> CopyCommand { get; }
     public AsyncRelayCommand PasteCommand { get; }
+    public RelayCommand<FileEntryViewModel?> ShowPropertiesCommand { get; }
 
     // ----- Collections -----
     public ObservableCollection<FolderNode> FolderTree { get; } = new();
@@ -443,6 +451,7 @@ public sealed partial class FilesViewModel : ObservableObject
                 ? "Vous n'avez accès qu'à certains dossiers de ce chemin."
                 : "Ce dossier est vide.";
 
+            SearchText = string.Empty; // on repart d'une recherche vierge à chaque dossier
             ApplyFilterAndSort();
             StartThumbnailLoading();
             _ = SaveLastPathAsync(path); // mémorisé pour la prochaine connexion (PC ou mobile)
@@ -883,6 +892,32 @@ public sealed partial class FilesViewModel : ObservableObject
         if (!_dialogs.Confirm("Supprimer", $"Supprimer définitivement {label} ?", "Supprimer", destructive: true))
             return;
 
+        // Un dossier supprimé est-il lié à une synchronisation ? Si oui, proposer de la retirer aussi.
+        var deletedDirs = items.Where(i => i.IsDirectory).Select(i => FtpPathUtil.Normalize(i.FullPath)).ToList();
+        var affectedSyncs = new List<ApiSyncFolder>();
+        var removeSyncs = false;
+        if (deletedDirs.Count > 0)
+        {
+            try
+            {
+                var syncs = await _db.GetSyncFoldersAsync();
+                affectedSyncs = syncs.Where(s => deletedDirs.Any(d =>
+                    FtpPathUtil.Normalize(s.RemotePath) == d || FtpPathUtil.IsWithin(s.RemotePath, d))).ToList();
+            }
+            catch { /* info indisponible : on ne bloque pas la suppression */ }
+
+            if (affectedSyncs.Count > 0)
+            {
+                var machines = affectedSyncs.Select(s => s.MachineName).Distinct().ToList();
+                var detail = affectedSyncs.Count == 1
+                    ? $"Une synchronisation (machine « {machines[0]} ») est liée à cet emplacement."
+                    : $"{affectedSyncs.Count} synchronisations (machines : {string.Join(", ", machines)}) sont liées à cet emplacement.";
+                removeSyncs = _dialogs.Confirm("Synchronisation liée",
+                    $"{detail}\n\nRetirer aussi la/les synchronisation(s) ? Les dossiers locaux sur les machines ne sont pas supprimés.",
+                    "Retirer la synchro", destructive: true);
+            }
+        }
+
         IsBusy = true;
         var errors = 0;
         foreach (var item in items)
@@ -906,6 +941,16 @@ public sealed partial class FilesViewModel : ObservableObject
             }
         }
         IsBusy = false;
+
+        if (removeSyncs)
+        {
+            foreach (var s in affectedSyncs)
+            {
+                try { await _db.DeleteSyncFolderAsync(s.Id); }
+                catch (Exception ex) { _notify.Error("Retrait de la synchro impossible", ex.Message); }
+            }
+            _notify.Info("Synchronisation retirée", $"{affectedSyncs.Count} synchronisation(s) retirée(s).");
+        }
 
         if (errors == 0) _notify.Success("Supprimé", label);
         await NavigateToAsync(CurrentPath);
@@ -1073,6 +1118,16 @@ public sealed partial class FilesViewModel : ObservableObject
         return entry.IsSelected && sel.Count > 0 ? sel : new List<FileEntryViewModel> { entry };
     }
 
+    /// <summary>Affiche les métadonnées de la sélection (ou de l'élément visé).</summary>
+    private void ShowProperties(FileEntryViewModel? entry)
+    {
+        var set = BuildActionSet(entry);
+        if (set.Count == 0) return;
+        var dialog = new PropertiesDialog(set);
+        App.SetOwner(dialog);
+        dialog.ShowDialog();
+    }
+
     private void SetClipboard(FileEntryViewModel? entry, bool cut)
     {
         var set = BuildActionSet(entry);
@@ -1190,6 +1245,34 @@ public sealed partial class FilesViewModel : ObservableObject
         await ProcessUploadQueueAsync();
     }
 
+    /// <summary>Annule un envoi (supprime le fichier temporaire côté serveur).</summary>
+    private void CancelUpload(UploadItemViewModel? item)
+    {
+        if (item is null) return;
+        item.Status = UploadStatus.Canceled;
+        item.Cts.Cancel();
+        _ = _ftp.AbortUploadAsync(item.RemotePath, item.UploadId); // best-effort
+    }
+
+    /// <summary>Met un envoi en pause (garde la progression côté serveur pour reprendre).</summary>
+    private void PauseUpload(UploadItemViewModel? item)
+    {
+        if (item is null) return;
+        item.Status = UploadStatus.Paused;
+        item.Cts.Cancel(); // arrête l'envoi en cours ; le .part serveur est conservé
+    }
+
+    /// <summary>Reprend un envoi en pause ou échoué (repart d'où le serveur s'était arrêté).</summary>
+    private async Task ResumeUploadAsync(UploadItemViewModel? item)
+    {
+        if (item is null) return;
+        item.ResetCts();
+        item.ErrorMessage = null;
+        item.Status = UploadStatus.Pending;
+        IsUploadPanelOpen = true;
+        await ProcessUploadQueueAsync();
+    }
+
     private async Task EnqueueDirectoryAsync(string localDir, string remoteParent, List<UploadItemViewModel> sink)
     {
         var name = SanitizeName(Path.GetFileName(localDir.TrimEnd(Path.DirectorySeparatorChar)));
@@ -1227,9 +1310,14 @@ public sealed partial class FilesViewModel : ObservableObject
                 var progress = new Progress<double>(p => item.Progress = p);
                 try
                 {
-                    var ok = await _ftp.UploadAsync(item.LocalPath, item.RemotePath, progress);
+                    await _ftp.UploadAsync(item.LocalPath, item.RemotePath, progress, null, item.UploadId, item.Cts.Token);
                     item.Progress = 100;
-                    item.Status = ok ? UploadStatus.Completed : UploadStatus.Failed;
+                    item.Status = UploadStatus.Completed;
+                }
+                catch (OperationCanceledException)
+                {
+                    // Pause / annulation demandée : le statut a déjà été posé par la commande.
+                    if (item.Status == UploadStatus.Uploading) item.Status = UploadStatus.Canceled;
                 }
                 catch (Exception ex)
                 {
@@ -1237,15 +1325,19 @@ public sealed partial class FilesViewModel : ObservableObject
                     item.Status = UploadStatus.Failed;
                 }
 
-                // Rafraîchit si l'upload concerne le dossier courant.
-                if (FtpPathUtil.GetParent(item.RemotePath) == CurrentPath)
+                // Rafraîchit si l'envoi (terminé) concerne le dossier courant.
+                if (item.Status == UploadStatus.Completed && FtpPathUtil.GetParent(item.RemotePath) == CurrentPath)
                     await NavigateToAsync(CurrentPath);
             }
 
             var done = Uploads.Count(u => u.Status == UploadStatus.Completed);
             var failed = Uploads.Count(u => u.Status == UploadStatus.Failed);
-            if (failed == 0) _notify.Success("Envoi terminé", $"{done} fichier(s) envoyé(s).");
-            else _notify.Warning("Envoi terminé avec erreurs", $"{done} réussi(s), {failed} échoué(s).");
+            var stillActive = Uploads.Any(u => u.IsActive); // pauses éventuelles restantes
+            if (!stillActive && done + failed > 0)
+            {
+                if (failed == 0) _notify.Success("Envoi terminé", $"{done} fichier(s) envoyé(s).");
+                else _notify.Warning("Envoi terminé avec erreurs", $"{done} réussi(s), {failed} échoué(s).");
+            }
 
             await LoadFolderTreeAsync();
         }
@@ -1388,5 +1480,21 @@ public sealed partial class FilesViewModel : ObservableObject
         return name.Replace('/', '_').Replace('\\', '_');
     }
 
-    partial void OnIsUploadPanelOpenChanged(bool value) { }
+    // À la fermeture d'une file d'attente, on retire les éléments terminés (réussis/échoués/annulés)
+    // pour qu'elle ne gonfle pas indéfiniment ; les envois/téléchargements encore actifs sont gardés.
+    partial void OnIsUploadPanelOpenChanged(bool value)
+    {
+        if (value) return;
+        for (var i = Uploads.Count - 1; i >= 0; i--)
+            if (!Uploads[i].IsActive) Uploads.RemoveAt(i);
+        OnPropertyChanged(nameof(HasActiveUploads));
+    }
+
+    partial void OnIsDownloadPanelOpenChanged(bool value)
+    {
+        if (value) return;
+        for (var i = Downloads.Count - 1; i >= 0; i--)
+            if (!Downloads[i].IsActive) Downloads.RemoveAt(i);
+        OnPropertyChanged(nameof(HasActiveDownloads));
+    }
 }

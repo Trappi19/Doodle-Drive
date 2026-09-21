@@ -78,13 +78,18 @@ public sealed class FtpService
 
     public async Task<bool> UploadAsync(
         string localPath, string remotePath,
-        IProgress<double>? progress = null, long? mtimeUnix = null, CancellationToken ct = default)
+        IProgress<double>? progress = null, long? mtimeUnix = null, string? uploadId = null, CancellationToken ct = default)
     {
         remotePath = FtpPathUtil.Normalize(remotePath);
-        await _api.UploadFileAsync(FtpPathUtil.GetParent(remotePath), FtpPathUtil.GetName(remotePath),
-            localPath, progress, mtimeUnix, ct);
+        uploadId ??= Guid.NewGuid().ToString("N");
+        await _api.UploadFileChunkedAsync(FtpPathUtil.GetParent(remotePath), FtpPathUtil.GetName(remotePath),
+            localPath, uploadId, progress, mtimeUnix, ct);
         return true;
     }
+
+    /// <summary>Annule un envoi en cours côté serveur (supprime le fichier temporaire).</summary>
+    public Task AbortUploadAsync(string remotePath, string uploadId, CancellationToken ct = default) =>
+        _api.AbortUploadAsync(FtpPathUtil.GetParent(FtpPathUtil.Normalize(remotePath)), uploadId, ct);
 
     public async Task<bool> DownloadAsync(
         string remotePath, string localPath,

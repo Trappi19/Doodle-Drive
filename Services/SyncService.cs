@@ -5,6 +5,9 @@ namespace DoodleDrive.Services;
 
 public enum SyncAction { UploadNew, UploadModified, DownloadNew, DownloadModified }
 
+/// <summary>Sens d'une synchronisation.</summary>
+public enum SyncDirection { Both, Upload, Download }
+
 /// <summary>Une action prévue pour un fichier (résultat de « Vérifier »).</summary>
 public sealed record SyncItemPlan(string RelPath, SyncAction Action);
 
@@ -12,6 +15,12 @@ public sealed record SyncItemPlan(string RelPath, SyncAction Action);
 public sealed record SyncResult(int Uploaded, int Downloaded, int Skipped, int Failed, IReadOnlyList<string> Errors)
 {
     public int Changed => Uploaded + Downloaded;
+}
+
+/// <summary>Progression en cours (fichiers traités / total + fichier courant).</summary>
+public sealed record SyncProgress(int Done, int Total, string CurrentFile)
+{
+    public double Percent => Total > 0 ? Done * 100.0 / Total : 0;
 }
 
 /// <summary>
@@ -29,39 +38,40 @@ public sealed class SyncService
     private const double MtimeToleranceSeconds = 2;
 
     /// <summary>Calcule les actions sans rien transférer (« Vérifier »).</summary>
-    public async Task<IReadOnlyList<SyncItemPlan>> PreviewAsync(string localRoot, string remoteRoot, CancellationToken ct = default)
+    public async Task<IReadOnlyList<SyncItemPlan>> PreviewAsync(string localRoot, string remoteRoot,
+        SyncDirection direction = SyncDirection.Both, CancellationToken ct = default)
     {
-        var plan = await ComputePlanAsync(localRoot, FtpPathUtil.Normalize(remoteRoot), ct);
+        var plan = await ComputePlanAsync(localRoot, FtpPathUtil.Normalize(remoteRoot), direction, ct);
         return plan.Select(p => new SyncItemPlan(p.Rel, p.Action)).ToList();
     }
 
-    /// <summary>Synchronise dans les deux sens et renvoie le bilan.</summary>
+    /// <summary>Synchronise selon le sens choisi et renvoie le bilan.</summary>
     public async Task<SyncResult> SyncAsync(string localRoot, string remoteRoot,
-        IProgress<string>? status = null, CancellationToken ct = default)
+        SyncDirection direction = SyncDirection.Both, IProgress<SyncProgress>? progress = null, CancellationToken ct = default)
     {
         remoteRoot = FtpPathUtil.Normalize(remoteRoot);
         Directory.CreateDirectory(localRoot);
         var knownRemoteDirs = new HashSet<string>(StringComparer.Ordinal);
         await EnsureRemoteDirAsync(remoteRoot, remoteRoot, knownRemoteDirs, ct);
 
-        var plan = await ComputePlanAsync(localRoot, remoteRoot, ct);
-        int up = 0, down = 0; var errors = new List<string>();
+        var plan = await ComputePlanAsync(localRoot, remoteRoot, direction, ct);
+        int total = plan.Count, done = 0, up = 0, down = 0;
+        var errors = new List<string>();
 
         foreach (var p in plan)
         {
             ct.ThrowIfCancellationRequested();
+            progress?.Report(new SyncProgress(done, total, p.Rel));
             try
             {
                 if (p.Action is SyncAction.UploadNew or SyncAction.UploadModified)
                 {
-                    status?.Report($"Envoi : {p.Rel}");
                     await EnsureRemoteDirAsync(remoteRoot, FtpPathUtil.GetParent(p.RemotePath), knownRemoteDirs, ct);
-                    await _ftp.UploadAsync(p.LocalPath, p.RemotePath, null, p.LocalMtimeUnix, ct);
+                    await _ftp.UploadAsync(p.LocalPath, p.RemotePath, null, p.LocalMtimeUnix, ct: ct);
                     up++;
                 }
                 else
                 {
-                    status?.Report($"Réception : {p.Rel}");
                     Directory.CreateDirectory(Path.GetDirectoryName(p.LocalPath)!);
                     await _ftp.DownloadAsync(p.RemotePath, p.LocalPath, null, ct);
                     if (p.RemoteModifiedUtc is { } rm)
@@ -74,6 +84,8 @@ public sealed class SyncService
             {
                 errors.Add($"{p.Rel} : {ex.Message}");
             }
+            done++;
+            progress?.Report(new SyncProgress(done, total, p.Rel));
         }
 
         return new SyncResult(up, down, 0, errors.Count, errors);
@@ -85,7 +97,7 @@ public sealed class SyncService
         string Rel, SyncAction Action, string LocalPath, string RemotePath,
         long LocalMtimeUnix, DateTime? RemoteModifiedUtc);
 
-    private async Task<List<PlanEntry>> ComputePlanAsync(string localRoot, string remoteRoot, CancellationToken ct)
+    private async Task<List<PlanEntry>> ComputePlanAsync(string localRoot, string remoteRoot, SyncDirection direction, CancellationToken ct)
     {
         // 1) Fichiers locaux (chemins relatifs en slashs avant).
         var local = new Dictionary<string, (string Full, long Mtime, long Size)>(StringComparer.OrdinalIgnoreCase);
@@ -127,7 +139,14 @@ public sealed class SyncService
             var localPath = Path.Combine(localRoot, rel.Replace('/', Path.DirectorySeparatorChar));
             plan.Add(new PlanEntry(rel, SyncAction.DownloadNew, localPath, r.FullPath, 0, r.Modified.ToUniversalTime()));
         }
-        return plan;
+
+        // Filtre selon le sens demandé (Envoyer = uploads seulement, Récupérer = downloads seulement).
+        return direction switch
+        {
+            SyncDirection.Upload => plan.Where(p => p.Action is SyncAction.UploadNew or SyncAction.UploadModified).ToList(),
+            SyncDirection.Download => plan.Where(p => p.Action is SyncAction.DownloadNew or SyncAction.DownloadModified).ToList(),
+            _ => plan
+        };
     }
 
     private async Task WalkRemoteAsync(string dir, string relBase, Dictionary<string, RemoteEntry> map, CancellationToken ct)

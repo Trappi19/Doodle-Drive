@@ -13,7 +13,7 @@
     <ApplicationIcon>assets\icon.ico</ApplicationIcon>
     <!-- Version unique de l'app : doit correspondre à MyAppVersion dans setup\DoodleDrive.iss.
          Lue à l'exécution pour le système de mise à jour (UpdateService). -->
-    <Version>2.1.0</Version>
+    <Version>2.2.2</Version>
     <Company>Doodle Drive</Company>
     <Product>Doodle Drive</Product>
     <Authors>Sevan Quesnot</Authors>

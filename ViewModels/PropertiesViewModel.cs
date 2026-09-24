@@ -18,8 +18,8 @@ public sealed class PropertiesViewModel
             TypeText = e.KindText;
             SizeText = e.IsDirectory ? "—" : e.SizeText;
             ModifiedText = string.IsNullOrEmpty(e.ModifiedText) ? "—" : e.ModifiedText;
-            LocationText = FtpPathUtil.GetParent(e.FullPath);
-            FullPathText = e.FullPath;
+            LocationText = FtpPathUtil.ToDisplay(FtpPathUtil.GetParent(e.FullPath));
+            FullPathText = FtpPathUtil.ToDisplay(e.FullPath);
         }
         else
         {
@@ -33,7 +33,7 @@ public sealed class PropertiesViewModel
             TypeText = $"{folders} dossier(s), {files} fichier(s)";
             SizeText = FileEntryViewModel.FormatSize(totalBytes) + (folders > 0 ? "  (contenu des dossiers non compté)" : "");
             ModifiedText = "—";
-            LocationText = FtpPathUtil.GetParent(items[0].FullPath);
+            LocationText = FtpPathUtil.ToDisplay(FtpPathUtil.GetParent(items[0].FullPath));
             FullPathText = string.Join("\n", items.Select(i => i.Name));
         }
     }

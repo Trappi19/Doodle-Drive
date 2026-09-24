@@ -31,8 +31,11 @@ public sealed partial class SyncFolderRowViewModel : ObservableObject
     public string MachineName { get; }
     public bool IsThisMachine { get; }
 
+    /// <summary>Chemin en ligne « joli » (préfixe technique masqué).</summary>
+    public string DisplayRemotePath => FtpPathUtil.ToDisplay(RemotePath);
+
     /// <summary>Chemin complet « local ⇄ en ligne » (affiché en défilement au survol).</summary>
-    public string PathSummary => $"{LocalPath}    ⇄    {RemotePath}";
+    public string PathSummary => $"{LocalPath}    ⇄    {DisplayRemotePath}";
 
     [ObservableProperty] private bool _autoSync;
     [ObservableProperty] private bool _isBusy;
@@ -74,7 +77,7 @@ public sealed partial class SyncViewModel : ObservableObject
         _dialogs = dialogs;
         _notify = notify;
 
-        RefreshCommand = new AsyncRelayCommand(LoadAsync, () => !IsBusy);
+        RefreshCommand = new AsyncRelayCommand(() => LoadAsync(), () => !IsBusy);
         AddCommand = new AsyncRelayCommand(AddAsync, () => !IsBusy);
         SyncAllCommand = new AsyncRelayCommand(SyncAllAsync, () => !IsBusy && ThisMachine.Count > 0);
         SendRowCommand = new AsyncRelayCommand<SyncFolderRowViewModel?>(r => RunSyncAsync(r, SyncDirection.Upload));
@@ -82,12 +85,34 @@ public sealed partial class SyncViewModel : ObservableObject
         SyncRowCommand = new AsyncRelayCommand<SyncFolderRowViewModel?>(r => RunSyncAsync(r, SyncDirection.Both));
         CheckRowCommand = new AsyncRelayCommand<SyncFolderRowViewModel?>(CheckRowAsync);
         RemoveRowCommand = new AsyncRelayCommand<SyncFolderRowViewModel?>(RemoveRowAsync);
+        CloneHereCommand = new AsyncRelayCommand<SyncFolderRowViewModel?>(CloneHereAsync);
     }
 
     public ObservableCollection<SyncFolderRowViewModel> ThisMachine { get; } = new();
     public ObservableCollection<SyncFolderRowViewModel> OtherMachines { get; } = new();
 
-    [ObservableProperty] private bool _isBusy;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsFirstLoading))]
+    [NotifyPropertyChangedFor(nameof(ShowThisMachineEmpty))]
+    [NotifyPropertyChangedFor(nameof(HasLoadError))]
+    private bool _isBusy;
+
+    /// <summary>Message de la dernière erreur de chargement (null si le dernier chargement a réussi).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowThisMachineEmpty))]
+    [NotifyPropertyChangedFor(nameof(HasLoadError))]
+    private string? _loadError;
+
+    private bool _hasLoaded;
+
+    /// <summary>Chargement en cours sans rien à afficher encore → gros indicateur central.</summary>
+    public bool IsFirstLoading => IsBusy && !HasThisMachine && !HasOtherMachines;
+
+    /// <summary>« Aucun dossier » seulement quand on SAIT qu'il n'y en a pas (pas pendant le chargement).</summary>
+    public bool ShowThisMachineEmpty => _hasLoaded && !IsBusy && !HasThisMachine && LoadError is null;
+
+    /// <summary>Échec de chargement et aucune donnée précédente à montrer.</summary>
+    public bool HasLoadError => !IsBusy && LoadError is not null && !HasThisMachine && !HasOtherMachines;
 
     public string MachineName => Environment.MachineName;
     public bool HasThisMachine => ThisMachine.Count > 0;
@@ -101,6 +126,7 @@ public sealed partial class SyncViewModel : ObservableObject
     public AsyncRelayCommand<SyncFolderRowViewModel?> SyncRowCommand { get; }
     public AsyncRelayCommand<SyncFolderRowViewModel?> CheckRowCommand { get; }
     public AsyncRelayCommand<SyncFolderRowViewModel?> RemoveRowCommand { get; }
+    public AsyncRelayCommand<SyncFolderRowViewModel?> CloneHereCommand { get; }
 
     partial void OnIsBusyChanged(bool value)
     {
@@ -109,8 +135,13 @@ public sealed partial class SyncViewModel : ObservableObject
         SyncAllCommand.NotifyCanExecuteChanged();
     }
 
-    public async Task LoadAsync()
+    /// <summary>
+    /// Recharge la liste. Les lignes déjà affichées restent visibles pendant l'actualisation.
+    /// <paramref name="silent"/> : pas de notification d'erreur (préchargement).
+    /// </summary>
+    public async Task LoadAsync(bool silent = false)
     {
+        if (IsBusy) return; // un chargement est déjà en cours
         IsBusy = true;
         try
         {
@@ -126,17 +157,23 @@ public sealed partial class SyncViewModel : ObservableObject
                 else
                     OtherMachines.Add(new SyncFolderRowViewModel(f, false));
             }
-            OnPropertyChanged(nameof(HasThisMachine));
-            OnPropertyChanged(nameof(HasOtherMachines));
+            _hasLoaded = true;
+            LoadError = null;
             SyncAllCommand.NotifyCanExecuteChanged();
         }
         catch (Exception ex)
         {
-            _notify.Error("Chargement des synchronisations impossible", ex.Message);
+            LoadError = ex.Message;
+            if (!silent) _notify.Error("Chargement des synchronisations impossible", ex.Message);
         }
         finally
         {
             IsBusy = false;
+            OnPropertyChanged(nameof(HasThisMachine));
+            OnPropertyChanged(nameof(HasOtherMachines));
+            OnPropertyChanged(nameof(IsFirstLoading));
+            OnPropertyChanged(nameof(ShowThisMachineEmpty));
+            OnPropertyChanged(nameof(HasLoadError));
         }
     }
 
@@ -167,6 +204,42 @@ public sealed partial class SyncViewModel : ObservableObject
         }
     }
 
+    /// <summary>Reprend la synchro d'une autre machine sur CETTE machine : choisit un dossier local,
+    /// crée la paire vers le même dossier en ligne, puis lance une première synchro.</summary>
+    private async Task CloneHereAsync(SyncFolderRowViewModel? row)
+    {
+        if (row is null) return;
+        var remote = FtpPathUtil.Normalize(row.RemotePath);
+
+        if (ThisMachine.Any(r => FtpPathUtil.Normalize(r.RemotePath) == remote))
+        {
+            _notify.Info("Déjà synchronisé", "Ce dossier est déjà synchronisé sur cette machine.");
+            return;
+        }
+
+        var parent = _dialogs.PickDownloadFolder(_config.Current.LastDownloadFolder);
+        if (string.IsNullOrWhiteSpace(parent)) return;
+
+        var leaf = FtpPathUtil.GetName(remote);
+        var local = Path.Combine(parent, leaf);
+        try { Directory.CreateDirectory(local); } catch { /* le sync le recréera au besoin */ }
+
+        try
+        {
+            await _api.CreateSyncFolderAsync(_config.Current.MachineId, MachineName, local, remote, false);
+            _notify.Success("Synchronisation ajoutée ici", $"{leaf} ↔ {remote}");
+            await LoadAsync();
+
+            // Lance la première synchro sur la nouvelle paire (récupère les fichiers en ligne).
+            var newRow = ThisMachine.FirstOrDefault(r => FtpPathUtil.Normalize(r.RemotePath) == remote);
+            if (newRow is not null) await RunSyncAsync(newRow, SyncDirection.Both);
+        }
+        catch (Exception ex)
+        {
+            _notify.Error("Ajout impossible", ex.Message);
+        }
+    }
+
     private async Task CheckRowAsync(SyncFolderRowViewModel? row)
     {
         if (row is null || row.IsBusy) return;
@@ -174,16 +247,19 @@ public sealed partial class SyncViewModel : ObservableObject
         row.Status = "Vérification…";
         try
         {
-            var plan = await _sync.PreviewAsync(row.LocalPath, row.RemotePath);
-            if (plan.Count == 0)
+            var p = await _sync.PreviewAsync(row.Id, row.LocalPath, row.RemotePath, SyncDirection.Both);
+            if (p.Total == 0)
             {
                 row.Status = "À jour — rien à synchroniser.";
             }
             else
             {
-                var up = plan.Count(p => p.Action is SyncAction.UploadNew or SyncAction.UploadModified);
-                var down = plan.Count - up;
-                row.Status = $"{plan.Count} fichier(s) à synchroniser  ({up} ↑, {down} ↓)";
+                var parts = new List<string>();
+                if (p.Upload > 0) parts.Add($"{p.Upload} ↑");
+                if (p.Download > 0) parts.Add($"{p.Download} ↓");
+                if (p.DeleteRemote + p.DeleteLocal > 0) parts.Add($"{p.DeleteRemote + p.DeleteLocal} suppr.");
+                if (p.Rename > 0) parts.Add($"{p.Rename} renom.");
+                row.Status = $"{p.Total} action(s) : {string.Join(", ", parts)}";
             }
         }
         catch (Exception ex)
@@ -228,7 +304,7 @@ public sealed partial class SyncViewModel : ObservableObject
                     ? running
                     : $"{doneVerb} {sp.Done}/{sp.Total} — {sp.CurrentFile}";
             });
-            var res = await _sync.SyncAsync(row.LocalPath, row.RemotePath, direction, progress);
+            var res = await _sync.SyncAsync(row.Id, row.LocalPath, row.RemotePath, direction, progress);
             await _api.TouchSyncAsync(row.Id);
             row.LastSyncAt = DateTime.UtcNow;
 

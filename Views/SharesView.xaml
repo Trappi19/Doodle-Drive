@@ -21,10 +21,17 @@
                 <TextBlock Text="Mes partages" FontSize="24" FontWeight="Bold" />
                 <TextBlock Text="Liens de partage que vous avez créés" Opacity="0.65" />
             </StackPanel>
-            <ui:Button HorizontalAlignment="Right" VerticalAlignment="Top" Appearance="Secondary"
-                       Command="{Binding RefreshCommand}" ToolTip="Actualiser">
-                <TextBlock Style="{StaticResource GlyphText}" Text="&#xE72C;" FontSize="15" />
-            </ui:Button>
+            <StackPanel HorizontalAlignment="Right" VerticalAlignment="Top" Orientation="Horizontal">
+                <!-- Indicateur d'actualisation (la liste reste visible pendant ce temps) -->
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,10,0"
+                            Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}">
+                    <ui:ProgressRing Width="16" Height="16" IsIndeterminate="True" Margin="0,0,8,0" />
+                    <TextBlock Text="Actualisation…" FontSize="12" Opacity="0.6" VerticalAlignment="Center" />
+                </StackPanel>
+                <ui:Button Appearance="Secondary" Command="{Binding RefreshCommand}" ToolTip="Actualiser">
+                    <TextBlock Style="{StaticResource GlyphText}" Text="&#xE72C;" FontSize="15" />
+                </ui:Button>
+            </StackPanel>
         </Grid>
 
         <!-- Avertissement si l'URL de partage n'est pas configurée -->
@@ -44,6 +51,24 @@
                     <TextBlock Text="Aucun lien de partage pour l'instant." Opacity="0.6" Margin="0,10,0,0" />
                     <TextBlock Text="Clic droit sur un fichier → « Partager par lien… »" Opacity="0.4"
                                FontSize="12" Margin="0,4,0,0" HorizontalAlignment="Center" />
+                </StackPanel>
+
+                <!-- Premier chargement -->
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center"
+                            Visibility="{Binding IsFirstLoading, Converter={StaticResource BoolToVis}}">
+                    <ui:ProgressRing Width="40" Height="40" IsIndeterminate="True" HorizontalAlignment="Center" />
+                    <TextBlock Text="Chargement des partages…" Opacity="0.6" Margin="0,14,0,0" HorizontalAlignment="Center" />
+                </StackPanel>
+
+                <!-- Échec du chargement -->
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="420"
+                            Visibility="{Binding HasLoadError, Converter={StaticResource BoolToVis}}">
+                    <TextBlock Style="{StaticResource GlyphText}" Text="&#xE783;" FontSize="40" Opacity="0.35" HorizontalAlignment="Center" />
+                    <TextBlock Text="Impossible de charger les partages." Opacity="0.7" Margin="0,10,0,0" HorizontalAlignment="Center" />
+                    <TextBlock Text="{Binding LoadError}" Opacity="0.45" FontSize="12" Margin="0,4,0,0"
+                               TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Center" />
+                    <ui:Button Content="Réessayer" Appearance="Secondary" Margin="0,12,0,0" HorizontalAlignment="Center"
+                               Command="{Binding RefreshCommand}" />
                 </StackPanel>
 
                 <!-- Liste des partages -->

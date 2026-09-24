@@ -41,7 +41,19 @@ public sealed record ApiSyncFolder(int Id, string MachineId, string MachineName,
 public sealed class ApiClient
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
-    private readonly HttpClient _http = new() { Timeout = TimeSpan.FromMinutes(30) };
+    private readonly HttpClient _http = new(new SocketsHttpHandler
+    {
+        // Funnel / Wi-Fi du serveur coupent parfois les connexions inactives sans prévenir :
+        // on ne réutilise pas une connexion restée longtemps au repos (sinon la requête suivante
+        // « pend » sur un socket mort), et on abandonne vite une connexion qui ne s'établit pas.
+        PooledConnectionIdleTimeout = TimeSpan.FromSeconds(30),
+        PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+        ConnectTimeout = TimeSpan.FromSeconds(10)
+    }) { Timeout = TimeSpan.FromMinutes(30) };
+
+    /// <summary>Délai max d'une tentative de lecture (GET JSON) avant de réessayer.</summary>
+    private static readonly TimeSpan GetAttemptTimeout = TimeSpan.FromSeconds(15);
+    private const int GetMaxAttempts = 3;
     private readonly Func<string> _baseUrl;
 
     public ApiClient(Func<string> baseUrlProvider)
@@ -79,7 +91,33 @@ public sealed class ApiClient
         throw new ApiException(message ?? $"Erreur serveur ({(int)res.StatusCode}).", res.StatusCode);
     }
 
+    /// <summary>
+    /// Appel JSON. Les lectures (GET, idempotentes) ont un délai court par tentative et sont
+    /// réessayées : une requête bloquée sur une connexion morte repart au lieu d'attendre indéfiniment.
+    /// </summary>
     private async Task<T> SendJsonAsync<T>(HttpMethod method, string path, object? body = null, CancellationToken ct = default)
+    {
+        if (method != HttpMethod.Get) return await SendJsonOnceAsync<T>(method, path, body, ct);
+
+        for (var attempt = 1; ; attempt++)
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(GetAttemptTimeout);
+            try
+            {
+                return await SendJsonOnceAsync<T>(method, path, body, cts.Token);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                if (attempt >= GetMaxAttempts)
+                    throw new ApiException("Le serveur ne répond pas (délai dépassé). Réessayez.", HttpStatusCode.RequestTimeout);
+            }
+            catch (HttpRequestException) when (attempt < GetMaxAttempts) { }
+            await Task.Delay(TimeSpan.FromMilliseconds(400 * attempt), ct);
+        }
+    }
+
+    private async Task<T> SendJsonOnceAsync<T>(HttpMethod method, string path, object? body, CancellationToken ct)
     {
         using var req = Request(method, path);
         if (body is not null) req.Content = JsonContent.Create(body, options: Json);

@@ -3,6 +3,32 @@ namespace DoodleDrive.Services;
 /// <summary>Utilitaires de manipulation de chemins FTP (toujours des slashes avant, absolus).</summary>
 public static class FtpPathUtil
 {
+    /// <summary>
+    /// Préfixe technique masqué à l'affichage (ex. "/disques/ftpuser/SEAGATE 2TO"), remplacé par
+    /// <see cref="DisplayRootLabel"/> (ex. "Home"). Purement cosmétique — les chemins réels
+    /// envoyés à l'API restent complets. Définis au démarrage (App.OnStartup).
+    /// </summary>
+    public static string DisplayRoot = string.Empty;
+    public static string DisplayRootLabel = string.Empty;
+
+    /// <summary>Chemin « joli » pour l'utilisateur (ex. "Home/Sevan/Code/…").</summary>
+    public static string ToDisplay(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return string.Empty;
+        var p = Normalize(path);
+        var root = Normalize(DisplayRoot);
+        if (!string.IsNullOrEmpty(DisplayRoot) && root != "/")
+        {
+            if (p == root) return string.IsNullOrEmpty(DisplayRootLabel) ? GetName(root) : DisplayRootLabel;
+            if (p.StartsWith(root + "/", StringComparison.OrdinalIgnoreCase))
+            {
+                var rest = p[(root.Length + 1)..];
+                return string.IsNullOrEmpty(DisplayRootLabel) ? rest : $"{DisplayRootLabel}/{rest}";
+            }
+        }
+        return p.TrimStart('/');
+    }
+
     public static string Normalize(string path)
     {
         if (string.IsNullOrWhiteSpace(path)) return "/";

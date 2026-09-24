@@ -18,7 +18,7 @@ public sealed class AppServices
         Thumbnails = new ThumbnailService(Ftp);
         Dialogs = new DialogService();
         Update = new UpdateService(Api);
-        Sync = new SyncService(Ftp);
+        Sync = new SyncService(Ftp, new SyncStateStore());
     }
 
     public AppConfigService Config { get; }

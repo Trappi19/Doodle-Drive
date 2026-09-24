@@ -89,6 +89,11 @@ public sealed partial class ShellViewModel : ObservableObject
     public async Task StartAsync()
     {
         await GoFilesAsync();
+        // Préchargement discret des onglets Partages / Synchronisation : quand l'utilisateur
+        // clique dessus, le contenu est déjà là (le réseau via Funnel a une latence variable).
+        _ = Shares.LoadAsync(silent: true);
+        _syncInitialized = true;
+        _ = Sync.LoadAsync(silent: true);
         _ = RunUpdateFlowAsync(manual: false); // vérif mise à jour en arrière-plan
         StartAutoSync();
     }
@@ -120,7 +125,7 @@ public sealed partial class ShellViewModel : ObservableObject
             {
                 try
                 {
-                    var res = await _services.Sync.SyncAsync(f.LocalPath, f.RemotePath);
+                    var res = await _services.Sync.SyncAsync(f.Id, f.LocalPath, f.RemotePath);
                     await _services.Api.TouchSyncAsync(f.Id);
                     if (res.Changed > 0)
                         _services.Notifications.Success("Synchronisation automatique",
@@ -219,6 +224,7 @@ public sealed partial class ShellViewModel : ObservableObject
     private async Task GoSharesAsync()
     {
         CurrentPage = Shares;
+        // La liste déjà chargée s'affiche tout de suite ; on l'actualise en arrière-plan.
         await Shares.LoadAsync();
     }
 
@@ -233,6 +239,10 @@ public sealed partial class ShellViewModel : ObservableObject
         {
             _syncInitialized = true;
             await Sync.LoadAsync();
+        }
+        else if (Sync.LoadError is not null)
+        {
+            await Sync.LoadAsync(); // le préchargement avait échoué : on retente
         }
     }
 

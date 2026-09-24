@@ -118,6 +118,14 @@ public sealed partial class FilesViewModel : ObservableObject
         _configService.Save(c);
     }
 
+    /// <summary>Mémorise le choix vue grille/liste pour les prochaines sessions.</summary>
+    partial void OnIsGridViewChanged(bool value)
+    {
+        var c = _configService.Current;
+        c.DefaultView = value ? "Grid" : "List";
+        _configService.Save(c);
+    }
+
     private void OnConnectionChanged() => App.Dispatch(() => _ = ReloadForConnectionChangeAsync());
 
     private async Task ReloadForConnectionChangeAsync()

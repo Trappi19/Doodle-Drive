@@ -24,7 +24,7 @@ public sealed partial class SharesViewModel : ObservableObject
         _configService = configService;
         _dialogs = dialogs;
 
-        RefreshCommand = new AsyncRelayCommand(LoadAsync);
+        RefreshCommand = new AsyncRelayCommand(() => LoadAsync(silent: false));
         CopyCommand = new RelayCommand<ShareRowViewModel?>(Copy);
         OpenCommand = new RelayCommand<ShareRowViewModel?>(Open);
         RevokeCommand = new AsyncRelayCommand<ShareRowViewModel?>(RevokeAsync);
@@ -34,9 +34,25 @@ public sealed partial class SharesViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsEmpty))]
+    [NotifyPropertyChangedFor(nameof(IsFirstLoading))]
+    [NotifyPropertyChangedFor(nameof(HasLoadError))]
     private bool _isBusy;
 
-    public bool IsEmpty => Shares.Count == 0 && !IsBusy;
+    /// <summary>Message de la dernière erreur de chargement (null si le dernier chargement a réussi).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsEmpty))]
+    [NotifyPropertyChangedFor(nameof(HasLoadError))]
+    private string? _loadError;
+
+    private bool _hasLoaded;
+
+    /// <summary>Chargement en cours sans rien à afficher encore → gros indicateur central.</summary>
+    public bool IsFirstLoading => IsBusy && Shares.Count == 0;
+
+    /// <summary>Échec de chargement et aucune donnée précédente à montrer.</summary>
+    public bool HasLoadError => !IsBusy && LoadError is not null && Shares.Count == 0;
+
+    public bool IsEmpty => _hasLoaded && Shares.Count == 0 && !IsBusy && LoadError is null;
 
     /// <summary>Vrai si l'URL du serveur de partage n'est pas configurée (Paramètres).</summary>
     public bool IsShareNotConfigured => string.IsNullOrWhiteSpace(_configService.Current.ShareBaseUrl);
@@ -46,8 +62,13 @@ public sealed partial class SharesViewModel : ObservableObject
     public RelayCommand<ShareRowViewModel?> OpenCommand { get; }
     public AsyncRelayCommand<ShareRowViewModel?> RevokeCommand { get; }
 
-    public async Task LoadAsync()
+    /// <summary>
+    /// Recharge la liste. Les données déjà affichées restent visibles pendant l'actualisation
+    /// (pas d'écran vide). <paramref name="silent"/> : pas de notification d'erreur (préchargement).
+    /// </summary>
+    public async Task LoadAsync(bool silent = false)
     {
+        if (IsBusy) return; // un chargement est déjà en cours
         IsBusy = true;
         OnPropertyChanged(nameof(IsShareNotConfigured));
         try
@@ -59,15 +80,20 @@ public sealed partial class SharesViewModel : ObservableObject
             Shares.Clear();
             foreach (var s in list)
                 Shares.Add(new ShareRowViewModel(s, baseUrl, user));
+            _hasLoaded = true;
+            LoadError = null;
         }
         catch (Exception ex)
         {
-            _notify.Error("Chargement des partages impossible", ex.Message);
+            LoadError = ex.Message;
+            if (!silent) _notify.Error("Chargement des partages impossible", ex.Message);
         }
         finally
         {
             IsBusy = false;
             OnPropertyChanged(nameof(IsEmpty));
+            OnPropertyChanged(nameof(IsFirstLoading));
+            OnPropertyChanged(nameof(HasLoadError));
         }
     }
 

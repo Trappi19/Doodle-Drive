@@ -66,6 +66,11 @@ public sealed class AppConfig
     /// </summary>
     public bool OpenWindowOnStartup { get; set; }
 
+    // ----- Fenêtre principale (mémorisée entre les sessions) -----
+    public double WindowWidth { get; set; } = 1180;
+    public double WindowHeight { get; set; } = 760;
+    public bool WindowMaximized { get; set; }
+
     /// <summary>
     /// Identifiant stable de CETTE machine (généré une fois), pour distinguer les
     /// synchronisations d'une machine à l'autre sous le même compte.

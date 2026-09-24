@@ -65,6 +65,9 @@ public partial class App : Application
 
         _services = new AppServices();
         SettingsViewModel.ApplyTheme(_services.Config.Current.Theme);
+        // Affichage : masque le préfixe technique et l'appelle « Home » (ex. Home/Sevan/…). Cosmétique.
+        FtpPathUtil.DisplayRoot = "/disques/ftpuser/SEAGATE 2TO";
+        FtpPathUtil.DisplayRootLabel = "Home";
 
         DispatcherUnhandledException += OnUnhandledException;
 
@@ -144,6 +147,15 @@ public partial class App : Application
         var vm = new ShellViewModel(_services);
         var window = new MainWindow { DataContext = vm };
 
+        // Restaure la taille/état de la fenêtre mémorisés.
+        var wc = _services.Config.Current;
+        if (wc.WindowWidth >= 400 && wc.WindowHeight >= 300)
+        {
+            window.Width = wc.WindowWidth;
+            window.Height = wc.WindowHeight;
+        }
+        if (wc.WindowMaximized) window.WindowState = WindowState.Maximized;
+
         // Icône de la zone de notification : l'app tourne en tâche de fond.
         _tray = new TrayService();
         _tray.OpenRequested += () => Dispatch(() =>
@@ -174,6 +186,7 @@ public partial class App : Application
 
         window.Closing += (_, e) =>
         {
+            SaveWindowMetrics(window); // mémorise taille/état à chaque fermeture (tray ou quitter)
             // Fermer la fenêtre = passer en tâche de fond (sauf Quitter ou déconnexion).
             if (_exitRequested || _returningToLogin) return;
             e.Cancel = true;
@@ -205,6 +218,28 @@ public partial class App : Application
         if (!startHidden)
             window.Show();
         _ = vm.StartAsync();
+    }
+
+    /// <summary>Mémorise la taille (et l'état maximisé) de la fenêtre principale.</summary>
+    private void SaveWindowMetrics(Window w)
+    {
+        try
+        {
+            var c = _services.Config.Current;
+            if (w.WindowState == WindowState.Maximized)
+            {
+                c.WindowMaximized = true;
+                var rb = w.RestoreBounds;
+                if (rb.Width >= 400 && rb.Height >= 300) { c.WindowWidth = rb.Width; c.WindowHeight = rb.Height; }
+            }
+            else
+            {
+                c.WindowMaximized = false;
+                if (w.ActualWidth >= 400 && w.ActualHeight >= 300) { c.WindowWidth = w.ActualWidth; c.WindowHeight = w.ActualHeight; }
+            }
+            _services.Config.Save(c);
+        }
+        catch { /* best-effort */ }
     }
 
     private void OnUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)

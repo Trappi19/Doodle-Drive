@@ -198,12 +198,45 @@
                                         <TextBlock Text="{Binding LastSyncText}" Margin="20,2,0,0" FontSize="11" Opacity="0.5" />
                                     </StackPanel>
                                     <ui:Button Grid.Column="1" Appearance="Secondary" VerticalAlignment="Center"
-                                               ToolTip="Synchroniser ce dossier sur cette machine aussi"
+                                               ToolTipService.ShowOnDisabled="True"
                                                Command="{Binding DataContext.CloneHereCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
                                                CommandParameter="{Binding}">
+                                        <ui:Button.Style>
+                                            <Style TargetType="ui:Button" BasedOn="{StaticResource {x:Type ui:Button}}">
+                                                <Setter Property="ToolTip" Value="Synchroniser ce dossier sur cette machine aussi" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsAlreadyHere}" Value="True">
+                                                        <Setter Property="IsEnabled" Value="False" />
+                                                        <Setter Property="ToolTip" Value="Ce dossier est déjà synchronisé sur cette machine" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </ui:Button.Style>
                                         <StackPanel Orientation="Horizontal">
-                                            <TextBlock Style="{StaticResource GlyphText}" Text="&#xE896;" FontSize="14" Margin="0,0,6,0" />
-                                            <TextBlock Text="Synchroniser ici" FontSize="12" />
+                                            <TextBlock FontSize="14" Margin="0,0,6,0">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock" BasedOn="{StaticResource GlyphText}">
+                                                        <Setter Property="Text" Value="&#xE896;" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsAlreadyHere}" Value="True">
+                                                                <Setter Property="Text" Value="&#xE73E;" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                            <TextBlock FontSize="12">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Text" Value="Synchroniser ici" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsAlreadyHere}" Value="True">
+                                                                <Setter Property="Text" Value="Déjà synchronisé ici" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
                                         </StackPanel>
                                     </ui:Button>
                                 </Grid>

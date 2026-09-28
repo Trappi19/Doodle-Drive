@@ -37,6 +37,9 @@ public sealed partial class SyncFolderRowViewModel : ObservableObject
     /// <summary>Chemin complet « local ⇄ en ligne » (affiché en défilement au survol).</summary>
     public string PathSummary => $"{LocalPath}    ⇄    {DisplayRemotePath}";
 
+    /// <summary>(Autres machines) Ce dossier en ligne est déjà synchronisé sur CETTE machine.</summary>
+    [ObservableProperty] private bool _isAlreadyHere;
+
     [ObservableProperty] private bool _autoSync;
     [ObservableProperty] private bool _isBusy;
     [ObservableProperty] private string _status = string.Empty;
@@ -157,6 +160,11 @@ public sealed partial class SyncViewModel : ObservableObject
                 else
                     OtherMachines.Add(new SyncFolderRowViewModel(f, false));
             }
+            // Grise « Synchroniser ici » pour les dossiers déjà synchronisés sur cette machine.
+            var here = ThisMachine.Select(r => FtpPathUtil.Normalize(r.RemotePath)).ToHashSet(StringComparer.Ordinal);
+            foreach (var r in OtherMachines)
+                r.IsAlreadyHere = here.Contains(FtpPathUtil.Normalize(r.RemotePath));
+
             _hasLoaded = true;
             LoadError = null;
             SyncAllCommand.NotifyCanExecuteChanged();

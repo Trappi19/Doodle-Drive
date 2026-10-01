@@ -24,9 +24,18 @@ public sealed class ShareRowViewModel
     /// <summary>Glyphe Segoe Fluent : dossier (E8B7) ou fichier (E8A5).</summary>
     public string Glyph => _share.IsDir ? "\uE8B7" : "\uE8A5";
 
-    public string ModeText => _share.IsDir
-        ? (_share.Mode == "download" ? "Dossier (téléch.)" : "Dossier")
-        : (_share.Mode == "download" ? "Téléchargement" : "Aperçu");
+    public string ModeText => _share.Mode == "upload" ? "Dépôt"
+        : _share.IsDir
+            ? (_share.Mode == "download" ? "Dossier (téléch.)" : "Dossier")
+            : (_share.Mode == "download" ? "Téléchargement" : "Aperçu");
+
+    public bool HasPassword => _share.HasPassword;
+
+    /// <summary>Téléchargements effectués (« 3 / 10 » s'il y a une limite) ; « — » si sans objet.</summary>
+    public string DownloadsText => _share.Mode != "download" ? "—"
+        : _share.MaxDownloads is { } m ? $"{_share.DownloadCount} / {m}" : _share.DownloadCount.ToString();
+
+    public bool IsExhausted => _share.MaxDownloads is { } max && _share.DownloadCount >= max;
 
     public string CreatedText => _share.CreatedAt.ToString("dd/MM/yyyy HH:mm");
 
@@ -36,9 +45,9 @@ public sealed class ShareRowViewModel
 
     public bool IsRevoked => _share.Revoked;
     public bool IsExpired => _share.ExpiresAt is { } e && e < DateTime.UtcNow;
-    public bool IsActive => !IsRevoked && !IsExpired;
+    public bool IsActive => !IsRevoked && !IsExpired && !IsExhausted;
 
-    public string StatusText => IsRevoked ? "Révoqué" : IsExpired ? "Expiré" : "Actif";
+    public string StatusText => IsRevoked ? "Révoqué" : IsExpired ? "Expiré" : IsExhausted ? "Épuisé" : "Actif";
 
     /// <summary>URL publique complète du partage (vide si l'URL de base n'est pas configurée).</summary>
     public string Url => string.IsNullOrWhiteSpace(_baseUrl)

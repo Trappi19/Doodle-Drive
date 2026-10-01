@@ -71,6 +71,7 @@
                     <Grid.RowDefinitions>
                         <RowDefinition Height="*" />
                         <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
                     <StackPanel Grid.Row="0" Margin="0,10,0,0">
@@ -112,6 +113,14 @@
                         </Button>
 
                         <Button Style="{StaticResource NavButton}"
+                                Command="{Binding NavigateTrashCommand}"
+                                Tag="{Binding IsTrashActive}">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource GlyphText}" Text="&#xE74D;" FontSize="18" Width="28" />
+                                <TextBlock Text="Corbeille" VerticalAlignment="Center" FontSize="14" />
+                            </StackPanel>
+                        </Button>
+                        <Button Style="{StaticResource NavButton}"
                                 Command="{Binding NavigateSettingsCommand}"
                                 Tag="{Binding IsSettingsActive}">
                             <StackPanel Orientation="Horizontal">
@@ -121,8 +130,53 @@
                         </Button>
                     </StackPanel>
 
+                    <!-- Espace disque du serveur + itinéraire réseau -->
+                    <StackPanel Grid.Row="1" Margin="20,0,20,0">
+                        <ItemsControl ItemsSource="{Binding Volumes}"
+                                      Visibility="{Binding HasVolumes, Converter={StaticResource BoolToVis}}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:StorageVolumeViewModel}">
+                                    <StackPanel Margin="0,0,0,10">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Style="{StaticResource GlyphText}" Text="&#xEDA2;" FontSize="12" Opacity="0.7" Margin="0,0,6,0" />
+                                            <TextBlock Text="{Binding Name}" FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                        <ProgressBar Height="4" Margin="0,5,0,3" Minimum="0" Maximum="100" Value="{Binding UsedPercent, Mode=OneWay}">
+                                            <ProgressBar.Style>
+                                                <Style TargetType="ProgressBar" BasedOn="{StaticResource {x:Type ProgressBar}}">
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsLow}" Value="True">
+                                                            <Setter Property="Foreground" Value="#E5534B" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </ProgressBar.Style>
+                                        </ProgressBar>
+                                        <TextBlock Text="{Binding FreeText}" FontSize="11" Opacity="0.6" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <StackPanel Orientation="Horizontal" Margin="0,2,0,0" ToolTip="{Binding ConnectionTooltip}" Background="Transparent">
+                            <TextBlock Text="{Binding ConnectionGlyph}" FontSize="12" Margin="0,0,6,0">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock" BasedOn="{StaticResource GlyphText}">
+                                        <Setter Property="Opacity" Value="0.6" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsDirect}" Value="True">
+                                                <Setter Property="Foreground" Value="{DynamicResource AccentFillColorDefaultBrush}" />
+                                                <Setter Property="Opacity" Value="1" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                            <TextBlock Text="{Binding ConnectionText}" FontSize="11" Opacity="0.7" />
+                        </StackPanel>
+                    </StackPanel>
+
                     <!-- Profil + déconnexion -->
-                    <Border Grid.Row="1" Padding="12,12" Margin="10,8,10,12" CornerRadius="10"
+                    <Border Grid.Row="2" Padding="12,12" Margin="10,8,10,12" CornerRadius="10"
                             Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                         <Grid>
                             <Grid.ColumnDefinitions>

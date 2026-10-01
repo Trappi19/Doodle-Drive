@@ -105,3 +105,6 @@ $RECYCLE.BIN/
 
 # La config runtime est aussi stockée dans %AppData%\DoodleDrive\config.json,
 # hors du dépôt. Ne commite JAMAIS d'identifiants en dur dans le code.
+
+# Récap de projet (contient des infos serveur sensibles) : jamais versionné
+DoodleDrive-RECAP-projet.md

@@ -30,6 +30,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         _launchAtStartup = StartupRegistration.IsEnabled();
         _openWindowOnStartup = c.OpenWindowOnStartup;
         _shareBaseUrl = c.ShareBaseUrl;
+        _preferDirect = c.PreferDirect;
 
         SaveCommand = new RelayCommand(Save);
         ResetConnectionCommand = new RelayCommand(ResetConnection);
@@ -38,6 +39,9 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     /// <summary>Demande la déconnexion (après réinitialisation de la connexion serveur).</summary>
     public event Action? SignOutRequested;
+
+    /// <summary>Le réglage « accès direct » a changé (appliqué par le Shell).</summary>
+    public event Action<bool>? PreferDirectChanged;
 
     /// <summary>Demande une vérification de mise à jour (traitée par le Shell).</summary>
     public event Action? CheckUpdatesRequested;
@@ -60,6 +64,16 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private bool _openWindowOnStartup;
     [ObservableProperty] private string _shareBaseUrl;
     [ObservableProperty] private string _theme;
+    [ObservableProperty] private bool _preferDirect;
+
+    /// <summary>Appliqué et enregistré immédiatement.</summary>
+    partial void OnPreferDirectChanged(bool value)
+    {
+        var c = _configService.Current;
+        c.PreferDirect = value;
+        _configService.Save(c);
+        PreferDirectChanged?.Invoke(value);
+    }
 
     partial void OnThemeChanged(string value) => ApplyTheme(value);
 

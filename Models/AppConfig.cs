@@ -77,5 +77,8 @@ public sealed class AppConfig
     /// </summary>
     public string MachineId { get; set; } = string.Empty;
 
+    /// <summary>Utiliser l'accès direct au serveur (via Tailscale) quand il répond. Sinon : Internet (Funnel).</summary>
+    public bool PreferDirect { get; set; } = true;
+
     public AppConfig Clone() => (AppConfig)MemberwiseClone();
 }

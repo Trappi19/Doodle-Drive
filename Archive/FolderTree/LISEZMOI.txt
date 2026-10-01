@@ -1,0 +1,25 @@
+ARBRE DES DOSSIERS (vue Fichiers) — retiré de l'interface, conservé ici « au cas où »
+=====================================================================================
+
+Ces fichiers ne sont PAS compilés (extension .txt). Pour remettre l'arbre :
+
+1. Views/FilesView.xaml — dans « Corps : contenu » (Grid.Row="2"), remettre les colonnes :
+       <Grid.ColumnDefinitions>
+           <ColumnDefinition Width="250" MinWidth="180" />
+           <ColumnDefinition Width="4" />
+           <ColumnDefinition Width="*" />
+       </Grid.ColumnDefinitions>
+   coller le contenu de FolderTreePanel.xaml.txt AVANT « Zone principale »,
+   et redonner à la zone principale : Grid.Column="2" Margin="8,0,14,14".
+
+2. Views/FilesView.xaml.cs — recoller FolderTreeCodeBehind.cs.txt (gestionnaires
+   FolderTreeView_OnSelectedItemChanged, Tree_OnDragOver, Tree_OnDrop).
+
+3. ViewModels/FilesViewModel.cs — recoller FolderTreeViewModel.cs.txt :
+   propriétés FolderTree / SelectedFolderNode, commande ManageAccessForNodeCommand
+   (+ son initialisation dans le constructeur :
+    ManageAccessForNodeCommand = new AsyncRelayCommand<FolderNode?>(ManageAccessForNodeAsync);),
+   OnSelectedFolderNodeChanged, et l'ancienne LoadFolderTreeAsync (qui remplissait aussi
+   _accessible — l'actuelle LoadAccessAsync fait cette partie-là sans construire l'arbre).
+
+Le modèle Models/FolderNode.cs est toujours utilisé (sélecteur de dossier de la synchro).

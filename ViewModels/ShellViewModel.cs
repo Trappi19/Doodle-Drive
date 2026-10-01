@@ -17,10 +17,24 @@ public sealed partial class ShellViewModel : ObservableObject
         Files = new FilesViewModel(services.Database, services.Ftp, services.Thumbnails,
             services.Dialogs, services.Notifications, services.Session, services.Config);
         Settings = new SettingsViewModel(services.Config, services.Notifications, services.Session, services.Dialogs);
+        Settings.PreferDirectChanged += value =>
+        {
+            services.Api.PreferDirect = value;
+            _ = services.Api.RefreshRouteAsync();
+        };
         Settings.SignOutRequested += () => SignedOut?.Invoke();
         Settings.CheckUpdatesRequested += () => _ = RunUpdateFlowAsync(manual: true);
         Shares = new SharesViewModel(services.Database, services.Notifications, services.Session, services.Config, services.Dialogs);
         Sync = new SyncViewModel(services.Api, services.Sync, services.Ftp, services.Config, services.Dialogs, services.Notifications);
+        Trash = new TrashViewModel(services.Api, services.Notifications, services.Dialogs, services.Session);
+        Trash.ItemRestored += () => _ = Files.RefreshCommand.ExecuteAsync(null);
+        services.Api.RouteChanged += () => App.Dispatch(() =>
+        {
+            OnPropertyChanged(nameof(IsDirect));
+            OnPropertyChanged(nameof(ConnectionText));
+            OnPropertyChanged(nameof(ConnectionTooltip));
+            OnPropertyChanged(nameof(ConnectionGlyph));
+        });
         if (services.Session.IsAdmin)
             Admin = new AdminViewModel(services.Database, services.Dialogs, services.Notifications, services.Session);
 
@@ -28,6 +42,7 @@ public sealed partial class ShellViewModel : ObservableObject
         NavigateAdminCommand = new AsyncRelayCommand(GoAdminAsync, () => IsAdmin);
         NavigateSharesCommand = new AsyncRelayCommand(GoSharesAsync);
         NavigateSyncCommand = new AsyncRelayCommand(GoSyncAsync);
+        NavigateTrashCommand = new AsyncRelayCommand(GoTrashAsync);
         NavigateSettingsCommand = new RelayCommand(GoSettings);
         SignOutCommand = new RelayCommand(() => SignedOut?.Invoke());
         DismissToastCommand = new RelayCommand<Toast?>(t => { if (t is not null) services.Notifications.Dismiss(t); });
@@ -53,6 +68,17 @@ public sealed partial class ShellViewModel : ObservableObject
     public SettingsViewModel Settings { get; }
     public SharesViewModel Shares { get; }
     public SyncViewModel Sync { get; }
+    public TrashViewModel Trash { get; }
+
+    // ----- Barre latérale : espace disque du serveur + itinéraire réseau -----
+    public System.Collections.ObjectModel.ObservableCollection<StorageVolumeViewModel> Volumes { get; } = new();
+    public bool HasVolumes => Volumes.Count > 0;
+    public bool IsDirect => _services.Api.IsDirect;
+    public string ConnectionText => IsDirect ? "Connexion directe" : "Connexion via Internet";
+    public string ConnectionGlyph => IsDirect ? "\uE945" : "\uE774";
+    public string ConnectionTooltip => IsDirect
+        ? "Accès direct au serveur via Tailscale (rapide)."
+        : "Accès par l'adresse publique (Tailscale Funnel). L'accès direct est utilisé automatiquement quand ce PC est sur le réseau Tailscale.";
     public AdminViewModel? Admin { get; }
 
     public ObservableCollection<Toast> Toasts => _services.Notifications.Toasts;
@@ -67,19 +93,27 @@ public sealed partial class ShellViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsAdminActive))]
     [NotifyPropertyChangedFor(nameof(IsSharesActive))]
     [NotifyPropertyChangedFor(nameof(IsSyncActive))]
+    [NotifyPropertyChangedFor(nameof(IsTrashActive))]
     [NotifyPropertyChangedFor(nameof(IsSettingsActive))]
     private ObservableObject _currentPage;
 
     public bool IsFilesActive => ReferenceEquals(CurrentPage, Files);
+
+    partial void OnCurrentPageChanged(ObservableObject value)
+    {
+        if (!ReferenceEquals(value, Files)) Files.CancelSearch();
+    }
     public bool IsAdminActive => Admin is not null && ReferenceEquals(CurrentPage, Admin);
     public bool IsSharesActive => ReferenceEquals(CurrentPage, Shares);
     public bool IsSyncActive => ReferenceEquals(CurrentPage, Sync);
+    public bool IsTrashActive => ReferenceEquals(CurrentPage, Trash);
     public bool IsSettingsActive => ReferenceEquals(CurrentPage, Settings);
 
     public AsyncRelayCommand NavigateFilesCommand { get; }
     public AsyncRelayCommand NavigateAdminCommand { get; }
     public AsyncRelayCommand NavigateSharesCommand { get; }
     public AsyncRelayCommand NavigateSyncCommand { get; }
+    public AsyncRelayCommand NavigateTrashCommand { get; }
     public RelayCommand NavigateSettingsCommand { get; }
     public RelayCommand SignOutCommand { get; }
     public RelayCommand<Toast?> DismissToastCommand { get; }
@@ -96,6 +130,49 @@ public sealed partial class ShellViewModel : ObservableObject
         _ = Sync.LoadAsync(silent: true);
         _ = RunUpdateFlowAsync(manual: false); // vérif mise à jour en arrière-plan
         StartAutoSync();
+        StartBackgroundRefresh();
+    }
+
+    private System.Windows.Threading.DispatcherTimer? _routeTimer;
+    private System.Windows.Threading.DispatcherTimer? _storageTimer;
+    private bool _lowSpaceWarned;
+
+    /// <summary>
+    /// Itinéraire réseau (direct/Internet) vérifié toutes les minutes ; espace disque toutes les 5 min.
+    /// </summary>
+    private void StartBackgroundRefresh()
+    {
+        _services.Api.PreferDirect = _services.Config.Current.PreferDirect;
+        _ = _services.Api.RefreshRouteAsync();
+        _routeTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMinutes(1) };
+        _routeTimer.Tick += (_, _) => _ = _services.Api.RefreshRouteAsync();
+        _routeTimer.Start();
+
+        _ = RefreshStorageAsync();
+        _storageTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMinutes(5) };
+        _storageTimer.Tick += (_, _) => _ = RefreshStorageAsync();
+        _storageTimer.Start();
+    }
+
+    private async Task RefreshStorageAsync()
+    {
+        try
+        {
+            var s = await _services.Api.GetStorageAsync();
+            Volumes.Clear();
+            foreach (var v in s.Volumes) Volumes.Add(new StorageVolumeViewModel(v));
+            OnPropertyChanged(nameof(HasVolumes));
+
+            // Alerte une seule fois par session si un disque est presque plein (< 5 % libre).
+            var critical = s.Volumes.FirstOrDefault(v => v.Total > 0 && v.Free * 100.0 / v.Total < 5);
+            if (critical is not null && !_lowSpaceWarned)
+            {
+                _lowSpaceWarned = true;
+                _services.Notifications.Warning("Espace disque presque plein",
+                    $"{critical.Name} : {FileEntryViewModel.FormatSize(critical.Free)} libres.");
+            }
+        }
+        catch { /* affichage best-effort : on réessaiera au prochain tick */ }
     }
 
     private System.Windows.Threading.DispatcherTimer? _autoSyncTimer;
@@ -244,6 +321,12 @@ public sealed partial class ShellViewModel : ObservableObject
         {
             await Sync.LoadAsync(); // le préchargement avait échoué : on retente
         }
+    }
+
+    private async Task GoTrashAsync()
+    {
+        CurrentPage = Trash;
+        await Trash.LoadAsync();
     }
 
     private void GoSettings() => CurrentPage = Settings;

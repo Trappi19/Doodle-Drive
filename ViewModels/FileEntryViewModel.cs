@@ -12,6 +12,10 @@ public sealed partial class FileEntryViewModel : ObservableObject
 
     public RemoteEntry Entry { get; }
 
+    /// <summary>Dossier qui contient l'élément — renseigné seulement pour un résultat de recherche.</summary>
+    public string LocationText { get; init; } = string.Empty;
+    public bool HasLocation => LocationText.Length > 0;
+
     public string Name => Entry.Name;
     public string FullPath => Entry.FullPath;
     public bool IsDirectory => Entry.IsDirectory;

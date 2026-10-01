@@ -103,14 +103,16 @@ public sealed class DatabaseService
     public Task EnsureSharesTableAsync(CancellationToken ct = default) => Task.CompletedTask; // géré par le serveur
 
     /// <summary>Crée un partage via l'API (le serveur génère le jeton) et le renvoie.</summary>
-    public async Task<string> CreateShareAsync(string ftpPath, string mode, bool isDir, int? expiresInDays, CancellationToken ct = default) =>
-        (await _api.CreateShareAsync(ftpPath, mode, isDir, expiresInDays, ct)).Token;
+    public async Task<string> CreateShareAsync(string ftpPath, string mode, bool isDir, int? expiresInDays,
+        string? password = null, int? maxDownloads = null, CancellationToken ct = default) =>
+        (await _api.CreateShareAsync(ftpPath, mode, isDir, expiresInDays, password, maxDownloads, ct)).Token;
 
     public async Task<IReadOnlyList<ShareLink>> GetSharesAsync(int? createdBy, CancellationToken ct = default) =>
         (await _api.GetSharesAsync(ct)).Select(s => new ShareLink
         {
             Token = s.Token, FtpPath = s.FtpPath, FileName = s.FileName, Mode = s.Mode, IsDir = s.IsDir,
-            CreatedAt = s.CreatedAt, ExpiresAt = s.ExpiresAt, Revoked = s.Revoked, ViewCount = s.ViewCount
+            CreatedAt = s.CreatedAt, ExpiresAt = s.ExpiresAt, Revoked = s.Revoked, ViewCount = s.ViewCount,
+            HasPassword = s.HasPassword, MaxDownloads = s.MaxDownloads, DownloadCount = s.DownloadCount
         }).ToList();
 
     public Task RevokeShareAsync(string token, CancellationToken ct = default) => _api.RevokeShareAsync(token, ct);

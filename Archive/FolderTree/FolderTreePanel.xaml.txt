@@ -1,0 +1,36 @@
+            <!-- Arbre des dossiers -->
+            <Border Grid.Column="0" Margin="14,0,0,14" CornerRadius="10"
+                    Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                <TreeView x:Name="FolderTreeView" ItemsSource="{Binding FolderTree}"
+                          Background="Transparent" BorderThickness="0" Padding="6"
+                          AllowDrop="True" DragOver="Tree_OnDragOver" Drop="Tree_OnDrop"
+                          SelectedItemChanged="FolderTreeView_OnSelectedItemChanged">
+                    <TreeView.ItemContainerStyle>
+                        <Style TargetType="TreeViewItem" BasedOn="{StaticResource {x:Type TreeViewItem}}">
+                            <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+                        </Style>
+                    </TreeView.ItemContainerStyle>
+                    <TreeView.Resources>
+                        <HierarchicalDataTemplate DataType="{x:Type models:FolderNode}" ItemsSource="{Binding Children}">
+                            <StackPanel Orientation="Horizontal" Margin="2"
+                                        Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=TreeView}}">
+                                <StackPanel.ContextMenu>
+                                    <ContextMenu>
+                                        <MenuItem Header="Gérer les accès…"
+                                                  Command="{Binding PlacementTarget.Tag.ManageAccessForNodeCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                  CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                                    </ContextMenu>
+                                </StackPanel.ContextMenu>
+                                <TextBlock Style="{StaticResource GlyphText}" Text="{Binding Glyph}" FontSize="15"
+                                           Foreground="{StaticResource KindFolderBrush}" Margin="0,0,8,0" />
+                                <TextBlock Text="{Binding Name}" VerticalAlignment="Center"
+                                           Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+                            </StackPanel>
+                        </HierarchicalDataTemplate>
+                    </TreeView.Resources>
+                </TreeView>
+            </Border>
+
+            <GridSplitter Grid.Column="1" Width="4" HorizontalAlignment="Stretch"
+                          Background="Transparent" ResizeBehavior="PreviousAndNext" />
+

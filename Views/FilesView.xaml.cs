@@ -72,12 +72,6 @@ public partial class FilesView : UserControl
             new DoubleAnimation(0, 1, duration) { EasingFunction = ease });
     }
 
-    private void FolderTreeView_OnSelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
-    {
-        if (Vm is not null && e.NewValue is FolderNode node)
-            Vm.SelectedFolderNode = node;
-    }
-
     private void Content_OnDragOver(object sender, DragEventArgs e)
     {
         // Fichiers venant de Windows -> envoi (copie). Le déplacement interne est géré
@@ -160,28 +154,6 @@ public partial class FilesView : UserControl
         if (e.Data.GetData(EntriesDragFormat) is not List<FileEntryViewModel> set || set.Contains(target)) return;
 
         await Vm.MoveEntriesAsync(set, target.FullPath);
-    }
-
-    private void Tree_OnDragOver(object sender, DragEventArgs e)
-    {
-        var node = FindData<FolderNode>(e.OriginalSource as DependencyObject);
-        e.Effects = e.Data.GetDataPresent(EntriesDragFormat)
-                    && node is { IsPlaceholder: false } && !string.IsNullOrEmpty(node.FtpPath)
-            ? DragDropEffects.Move
-            : DragDropEffects.None;
-        e.Handled = true;
-    }
-
-    private async void Tree_OnDrop(object sender, DragEventArgs e)
-    {
-        if (Vm is null || !e.Data.GetDataPresent(EntriesDragFormat)) return;
-        e.Handled = true;
-
-        var node = FindData<FolderNode>(e.OriginalSource as DependencyObject);
-        if (node is null || node.IsPlaceholder || string.IsNullOrEmpty(node.FtpPath)) return;
-        if (e.Data.GetData(EntriesDragFormat) is not List<FileEntryViewModel> set) return;
-
-        await Vm.MoveEntriesAsync(set, node.FtpPath);
     }
 
     private static bool IsDragged(DragEventArgs e, FileEntryViewModel target) =>

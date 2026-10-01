@@ -18,6 +18,10 @@
             <MenuItem Header="Ouvrir / Aperçu"
                       Command="{Binding PlacementTarget.Tag.OpenEntryCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                       CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+            <MenuItem Header="Ouvrir l'emplacement"
+                      Visibility="{Binding PlacementTarget.DataContext.HasLocation, RelativeSource={RelativeSource AncestorType=ContextMenu}, Converter={StaticResource BoolToVis}}"
+                      Command="{Binding PlacementTarget.Tag.OpenLocationCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
             <MenuItem Header="Télécharger"
                       Command="{Binding PlacementTarget.Tag.DownloadSelectedCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
             <MenuItem Header="Copier le chemin"
@@ -86,7 +90,12 @@
                     <TextBlock Grid.Row="1" Text="{Binding Name}" TextTrimming="CharacterEllipsis"
                                TextAlignment="Center" Margin="0,8,0,0" MaxHeight="34" TextWrapping="Wrap" />
                     <TextBlock Grid.Row="2" Text="{Binding SizeText}" FontSize="11" Opacity="0.6"
-                               TextAlignment="Center" Margin="0,2,0,0" />
+                               TextAlignment="Center" Margin="0,2,0,0"
+                               Visibility="{Binding HasLocation, Converter={StaticResource InverseBoolToVis}}" />
+                    <TextBlock Grid.Row="2" Text="{Binding LocationText}" FontSize="10" Opacity="0.55"
+                               TextAlignment="Center" Margin="0,2,0,0" TextTrimming="CharacterEllipsis"
+                               ToolTip="{Binding LocationText}"
+                               Visibility="{Binding HasLocation, Converter={StaticResource BoolToVis}}" />
                 </Grid>
             </Border>
         </DataTemplate>
@@ -137,8 +146,13 @@
             </StackPanel>
 
             <ui:TextBox Grid.Column="1" MaxWidth="320" HorizontalAlignment="Right" Margin="12,0"
-                        PlaceholderText="Rechercher dans ce dossier…"
-                        Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" />
+                        PlaceholderText="Rechercher… (Entrée : sous-dossiers inclus)"
+                        ToolTip="Filtre ce dossier en direct. Appuyez sur Entrée pour chercher aussi dans tous les sous-dossiers."
+                        Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}">
+                <ui:TextBox.InputBindings>
+                    <KeyBinding Key="Enter" Command="{Binding GlobalSearchCommand}" />
+                </ui:TextBox.InputBindings>
+            </ui:TextBox>
 
             <StackPanel Grid.Column="2" Orientation="Horizontal">
                 <!-- Zoom (vue grille) -->
@@ -255,52 +269,12 @@
             </StackPanel>
         </Grid>
 
-        <!-- ==================== Corps : arbre + contenu ==================== -->
+        <!-- ==================== Corps : contenu ==================== -->
+        <!-- (L'arbre des dossiers a été retiré ; son code est archivé dans Archive/FolderTree.) -->
         <Grid Grid.Row="2">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="250" MinWidth="180" />
-                <ColumnDefinition Width="4" />
-                <ColumnDefinition Width="*" />
-            </Grid.ColumnDefinitions>
-
-            <!-- Arbre des dossiers -->
-            <Border Grid.Column="0" Margin="14,0,0,14" CornerRadius="10"
-                    Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
-                <TreeView x:Name="FolderTreeView" ItemsSource="{Binding FolderTree}"
-                          Background="Transparent" BorderThickness="0" Padding="6"
-                          AllowDrop="True" DragOver="Tree_OnDragOver" Drop="Tree_OnDrop"
-                          SelectedItemChanged="FolderTreeView_OnSelectedItemChanged">
-                    <TreeView.ItemContainerStyle>
-                        <Style TargetType="TreeViewItem" BasedOn="{StaticResource {x:Type TreeViewItem}}">
-                            <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
-                        </Style>
-                    </TreeView.ItemContainerStyle>
-                    <TreeView.Resources>
-                        <HierarchicalDataTemplate DataType="{x:Type models:FolderNode}" ItemsSource="{Binding Children}">
-                            <StackPanel Orientation="Horizontal" Margin="2"
-                                        Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=TreeView}}">
-                                <StackPanel.ContextMenu>
-                                    <ContextMenu>
-                                        <MenuItem Header="Gérer les accès…"
-                                                  Command="{Binding PlacementTarget.Tag.ManageAccessForNodeCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                                                  CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
-                                    </ContextMenu>
-                                </StackPanel.ContextMenu>
-                                <TextBlock Style="{StaticResource GlyphText}" Text="{Binding Glyph}" FontSize="15"
-                                           Foreground="{StaticResource KindFolderBrush}" Margin="0,0,8,0" />
-                                <TextBlock Text="{Binding Name}" VerticalAlignment="Center"
-                                           Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
-                            </StackPanel>
-                        </HierarchicalDataTemplate>
-                    </TreeView.Resources>
-                </TreeView>
-            </Border>
-
-            <GridSplitter Grid.Column="1" Width="4" HorizontalAlignment="Stretch"
-                          Background="Transparent" ResizeBehavior="PreviousAndNext" />
 
             <!-- Zone principale -->
-            <Grid Grid.Column="2" Margin="8,0,14,14"
+            <Grid Margin="14,0,14,14"
                   AllowDrop="True" Drop="Content_OnDrop" DragOver="Content_OnDragOver" Background="Transparent">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="*" />
@@ -387,7 +361,12 @@
                                                     <TextBlock Style="{StaticResource GlyphText}" Text="{Binding Glyph}" FontSize="18"
                                                                Foreground="{Binding AccentBrushKey, Converter={StaticResource KeyToBrush}}"
                                                                Margin="0,0,10,0" />
-                                                    <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
+                                                    <StackPanel VerticalAlignment="Center">
+                                                        <TextBlock Text="{Binding Name}" />
+                                                        <TextBlock Text="{Binding LocationText}" FontSize="11" Opacity="0.55"
+                                                                   TextTrimming="CharacterEllipsis"
+                                                                   Visibility="{Binding HasLocation, Converter={StaticResource BoolToVis}}" />
+                                                    </StackPanel>
                                                 </StackPanel>
                                             </DataTemplate>
                                         </GridViewColumn.CellTemplate>
@@ -413,6 +392,11 @@
                         <Border Background="#40000000" Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}">
                             <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
                                 <ui:ProgressRing IsIndeterminate="True" Width="46" Height="46" HorizontalAlignment="Center" />
+                                <TextBlock Text="Recherche dans les sous-dossiers…" Opacity="0.8" HorizontalAlignment="Center" Margin="0,14,0,0"
+                                           Visibility="{Binding IsSearching, Converter={StaticResource BoolToVis}}" />
+                                <ui:Button Command="{Binding CancelSearchCommand}" Content="Annuler la recherche"
+                                           Appearance="Secondary" HorizontalAlignment="Center" Margin="0,12,0,0"
+                                           Visibility="{Binding IsSearching, Converter={StaticResource BoolToVis}}" />
                                 <ui:Button Command="{Binding CancelOpenCommand}" Content="Annuler le chargement"
                                            Appearance="Secondary" HorizontalAlignment="Center" Margin="0,16,0,0"
                                            Visibility="{Binding IsLoadingContent, Converter={StaticResource BoolToVis}}" />

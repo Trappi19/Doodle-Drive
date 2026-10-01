@@ -32,6 +32,7 @@ public sealed partial class FilesViewModel : ObservableObject
     private bool _clipboardCut;
     private CancellationTokenSource? _thumbCts;
     private CancellationTokenSource? _openCts;
+    private CancellationTokenSource? _searchCts;
     private bool _isProcessingUploads;
     private bool _isProcessingDownloads;
 
@@ -68,7 +69,6 @@ public sealed partial class FilesViewModel : ObservableObject
         UploadFilesCommand = new AsyncRelayCommand(UploadFilesAsync, () => CanWriteCurrent && !IsBusy);
         PreviewCommand = new AsyncRelayCommand<FileEntryViewModel?>(PreviewAsync);
         ManageAccessCommand = new AsyncRelayCommand(ManageAccessCurrentAsync, () => CanManageCurrent);
-        ManageAccessForNodeCommand = new AsyncRelayCommand<FolderNode?>(ManageAccessForNodeAsync);
         ManageAccessForEntryCommand = new AsyncRelayCommand<FileEntryViewModel?>(ManageAccessForEntryAsync);
         ShareCommand = new AsyncRelayCommand<FileEntryViewModel?>(ShareAsync);
         CopyPathCommand = new RelayCommand<FileEntryViewModel?>(CopyPath);
@@ -76,6 +76,12 @@ public sealed partial class FilesViewModel : ObservableObject
         ToggleViewCommand = new RelayCommand(() => IsGridView = !IsGridView);
         SetSortCommand = new RelayCommand<string?>(SetSort);
         ClearSearchCommand = new RelayCommand(() => SearchText = string.Empty);
+        GlobalSearchCommand = new AsyncRelayCommand(() => RunGlobalSearchAsync(CurrentPath));
+        SearchWholeDriveCommand = new AsyncRelayCommand(
+            () => RunGlobalSearchAsync(FtpPathUtil.Normalize(_configService.Current.FtpRootPath)));
+        CloseSearchCommand = new AsyncRelayCommand(CloseSearchAsync);
+        CancelSearchCommand = new RelayCommand(CancelSearch);
+        OpenLocationCommand = new AsyncRelayCommand<FileEntryViewModel?>(OpenLocationAsync);
         SignalUploadPanelCommand = new RelayCommand(() => IsUploadPanelOpen = !IsUploadPanelOpen);
         CancelUploadCommand = new RelayCommand<UploadItemViewModel?>(CancelUpload);
         PauseUploadCommand = new RelayCommand<UploadItemViewModel?>(PauseUpload);
@@ -156,7 +162,6 @@ public sealed partial class FilesViewModel : ObservableObject
     public AsyncRelayCommand UploadFilesCommand { get; }
     public AsyncRelayCommand<FileEntryViewModel?> PreviewCommand { get; }
     public AsyncRelayCommand ManageAccessCommand { get; }
-    public AsyncRelayCommand<FolderNode?> ManageAccessForNodeCommand { get; }
     public AsyncRelayCommand<FileEntryViewModel?> ManageAccessForEntryCommand { get; }
     public AsyncRelayCommand<FileEntryViewModel?> ShareCommand { get; }
     public RelayCommand<FileEntryViewModel?> CopyPathCommand { get; }
@@ -164,6 +169,23 @@ public sealed partial class FilesViewModel : ObservableObject
     public RelayCommand ToggleViewCommand { get; }
     public RelayCommand<string?> SetSortCommand { get; }
     public RelayCommand ClearSearchCommand { get; }
+    public AsyncRelayCommand GlobalSearchCommand { get; }
+    public AsyncRelayCommand SearchWholeDriveCommand { get; }
+    public AsyncRelayCommand CloseSearchCommand { get; }
+    public RelayCommand CancelSearchCommand { get; }
+
+    /// <summary>Recherche en cours (affiche « Annuler la recherche » sur l'indicateur).</summary>
+    [ObservableProperty] private bool _isSearching;
+
+    /// <summary>Interrompt la recherche en cours (le serveur arrête aussi son parcours).</summary>
+    public void CancelSearch() => _searchCts?.Cancel();
+    public AsyncRelayCommand<FileEntryViewModel?> OpenLocationCommand { get; }
+
+    // ----- Recherche dans les sous-dossiers (côté serveur) -----
+    /// <summary>Vrai quand la zone principale affiche des résultats de recherche (et non un dossier).</summary>
+    [ObservableProperty] private bool _isSearchResults;
+    [ObservableProperty] private string _searchResultsTitle = string.Empty;
+    [ObservableProperty] private bool _canWidenSearch;
     public RelayCommand SignalUploadPanelCommand { get; }
     public RelayCommand SignalDownloadPanelCommand { get; }
     public RelayCommand<UploadItemViewModel?> CancelUploadCommand { get; }
@@ -178,14 +200,12 @@ public sealed partial class FilesViewModel : ObservableObject
     public RelayCommand<FileEntryViewModel?> ShowPropertiesCommand { get; }
 
     // ----- Collections -----
-    public ObservableCollection<FolderNode> FolderTree { get; } = new();
     public ObservableCollection<FileEntryViewModel> Entries { get; } = new();
     public ObservableCollection<BreadcrumbItem> Breadcrumb { get; } = new();
     public ObservableCollection<UploadItemViewModel> Uploads { get; } = new();
     public ObservableCollection<DownloadItemViewModel> Downloads { get; } = new();
 
     // ----- État -----
-    [ObservableProperty] private FolderNode? _selectedFolderNode;
     [ObservableProperty] private string _currentPath = "/";
     [ObservableProperty] private bool _isBusy;
     [ObservableProperty] private bool _isGridView;
@@ -226,12 +246,12 @@ public sealed partial class FilesViewModel : ObservableObject
 
     public async Task InitializeAsync()
     {
-        await LoadFolderTreeAsync();
+        await LoadAccessAsync();
 
         // Comportement automatique : premier dossier attribué (racine FTP pour l'admin).
         var auto = _session.IsAdmin
             ? FtpPathUtil.Normalize(_configService.Current.FtpRootPath)
-            : FolderTree.FirstOrDefault()?.FtpPath ?? FtpPathUtil.Normalize(_configService.Current.FtpRootPath);
+            : _userRoots.FirstOrDefault() ?? FtpPathUtil.Normalize(_configService.Current.FtpRootPath);
 
         // Priorité : chemin par défaut (fixé par un admin) -> automatique. Le dernier chemin
         // visité n'est volontairement PAS restauré à l'ouverture : avec plusieurs connexions
@@ -257,144 +277,40 @@ public sealed partial class FilesViewModel : ObservableObject
         await NavigateToAsync(start);
     }
 
-    public async Task LoadFolderTreeAsync()
+    /// <summary>
+    /// Charge les dossiers accessibles (droits « couloir ») utilisés par tous les contrôles d'accès,
+    /// et les dossiers racines de l'utilisateur (point de départ). Anciennement : construction de l'arbre.
+    /// </summary>
+    public async Task LoadAccessAsync()
     {
         try
         {
-            FolderTree.Clear();
-
-            var rootPath = FtpPathUtil.Normalize(_configService.Current.FtpRootPath);
-            var rootListing = await TryListDirectoriesAsync(rootPath);
-
-            // Dossiers réellement présents à la racine du FTP courant (multi-connexions :
-            // les dossiers enregistrés en base peuvent appartenir à un autre serveur).
-            var existingRoots = rootListing?.Select(e => e.FullPath).ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-            bool ExistsOnCurrentFtp(string ftpPath)
-            {
-                if (existingRoots is null) return true; // FTP injoignable : on n'élague pas
-                var top = TopSegmentUnder(rootPath, FtpPathUtil.Normalize(ftpPath));
-                return top is not null && existingRoots.Contains(top);
-            }
-
             if (_session.IsAdmin)
             {
-                // _accessible reste alimenté depuis la base (sert aux contrôles d'accès),
-                // mais l'ARBRE affiche la vraie structure du disque, chargée paresseusement.
-                var all = (await _db.GetAllFoldersAsync()).Where(f => ExistsOnCurrentFtp(f.FtpPath)).ToList();
+                var all = await _db.GetAllFoldersAsync();
                 _accessible = all.Select(f => (f, FolderAccessLevel.Owner)).ToList();
-
-                var rootNode = new FolderNode(new Folder { Id = 0, Name = "Tout le drive", FtpPath = rootPath }, FolderAccessLevel.Owner);
-                if (rootListing is not null)
-                    foreach (var dir in rootListing.OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase))
-                        rootNode.Children.Add(CreateFtpNode(dir.Name, dir.FullPath));
-                FolderTree.Add(rootNode);
+                _userRoots = new List<string>();
             }
             else
             {
-                _accessible = (await _db.GetAccessibleFoldersAsync(_session.UserId))
-                    .Where(a => ExistsOnCurrentFtp(a.Folder.FtpPath)).ToList();
+                _accessible = (await _db.GetAccessibleFoldersAsync(_session.UserId)).ToList();
                 var accessibleIds = _accessible.Select(a => a.Folder.Id).ToHashSet();
-                var folders = _accessible.Select(a => a.Folder).ToList();
-
                 // Racines = dossiers accessibles dont le parent n'est pas lui-même accessible.
-                foreach (var (folder, access) in _accessible
-                             .Where(a => a.Folder.ParentId is not int pid || !accessibleIds.Contains(pid))
-                             .OrderBy(a => a.Folder.Name))
-                {
-                    var node = new FolderNode(folder, access);
-                    BuildChildren(node, folders, folder.Id);
-                    FolderTree.Add(node);
-                }
+                _userRoots = _accessible
+                    .Where(a => a.Folder.ParentId is not int pid || !accessibleIds.Contains(pid))
+                    .OrderBy(a => a.Folder.Name)
+                    .Select(a => a.Folder.FtpPath)
+                    .ToList();
             }
         }
         catch (Exception ex)
         {
-            _notify.Error("Chargement des dossiers impossible", ex.Message);
+            _notify.Error("Chargement des droits d'accès impossible", ex.Message);
         }
     }
 
-    /// <summary>Sous-dossiers d'un chemin FTP, ou null si le listing échoue.</summary>
-    private async Task<IReadOnlyList<RemoteEntry>?> TryListDirectoriesAsync(string path)
-    {
-        try
-        {
-            var listing = await _ftp.ListAsync(path);
-            return listing.Where(e => e.IsDirectory).ToList();
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    /// <summary>
-    /// Crée un nœud d'arbre reflétant un vrai dossier du FTP, dont les enfants sont
-    /// chargés à la demande au premier dépliage.
-    /// </summary>
-    private FolderNode CreateFtpNode(string name, string path)
-    {
-        var node = new FolderNode(new Folder { Id = 0, Name = name, FtpPath = path }, FolderAccessLevel.Owner)
-        {
-            ChildrenLoaded = false,
-            IsExpanded = false
-        };
-        node.Children.Add(FolderNode.CreatePlaceholder());
-        node.PropertyChanged += (_, e) =>
-        {
-            if (e.PropertyName == nameof(FolderNode.IsExpanded) && node.IsExpanded && !node.ChildrenLoaded)
-                _ = LoadFtpChildrenAsync(node);
-        };
-        return node;
-    }
-
-    private async Task LoadFtpChildrenAsync(FolderNode node)
-    {
-        node.ChildrenLoaded = true;
-        var listing = await TryListDirectoriesAsync(node.FtpPath);
-        if (listing is null)
-        {
-            // Échec : on referme et on laisse la possibilité de réessayer au prochain dépliage.
-            node.ChildrenLoaded = false;
-            node.IsExpanded = false;
-            return;
-        }
-
-        node.Children.Clear();
-        foreach (var dir in listing.OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase))
-            node.Children.Add(CreateFtpNode(dir.Name, dir.FullPath));
-    }
-
-    /// <summary>
-    /// Premier segment de <paramref name="path"/> sous <paramref name="rootPath"/>
-    /// (ex. racine "/" et chemin "/Disque/User/Doc" -> "/Disque"), ou null si hors racine.
-    /// </summary>
-    private static string? TopSegmentUnder(string rootPath, string path)
-    {
-        var root = rootPath == "/" ? string.Empty : rootPath;
-        if (string.Equals(path, rootPath, StringComparison.OrdinalIgnoreCase)) return null;
-        if (!path.StartsWith(root + "/", StringComparison.OrdinalIgnoreCase)) return null;
-        var segment = path[(root.Length + 1)..].Split('/')[0];
-        return root + "/" + segment;
-    }
-
-    private void BuildChildren(FolderNode parent, List<Folder> all, int? parentId)
-    {
-        foreach (var child in all.Where(f => f.ParentId == parentId).OrderBy(f => f.Name))
-        {
-            var access = _accessible.FirstOrDefault(a => a.Folder.Id == child.Id).Access;
-            if (access == FolderAccessLevel.None) access = FolderAccessLevel.Owner; // admin
-            var node = new FolderNode(child, access);
-            BuildChildren(node, all, child.Id);
-            parent.Children.Add(node);
-        }
-    }
-
-    partial void OnSelectedFolderNodeChanged(FolderNode? value)
-    {
-        if (value is null || value.IsPlaceholder || string.IsNullOrEmpty(value.FtpPath)) return;
-        _ = NavigateToAsync(value.FtpPath);
-    }
+    /// <summary>Dossiers racines accessibles à l'utilisateur (vide pour un admin).</summary>
+    private List<string> _userRoots = new();
 
     // =====================================================================
     //  Navigation FTP
@@ -414,6 +330,7 @@ public sealed partial class FilesViewModel : ObservableObject
     {
         if (string.IsNullOrWhiteSpace(path)) return;
         path = FtpPathUtil.Normalize(path);
+        if (IsSearching) CancelSearch();
 
         if (!_session.IsAdmin && AccessForPath(path) == FolderAccessLevel.None)
         {
@@ -459,6 +376,7 @@ public sealed partial class FilesViewModel : ObservableObject
                 ? "Vous n'avez accès qu'à certains dossiers de ce chemin."
                 : "Ce dossier est vide.";
 
+            IsSearchResults = false;    // (avant SearchText : évite de relancer le dossier)
             SearchText = string.Empty; // on repart d'une recherche vierge à chaque dossier
             ApplyFilterAndSort();
             StartThumbnailLoading();
@@ -600,7 +518,97 @@ public sealed partial class FilesViewModel : ObservableObject
     //  Recherche / tri
     // =====================================================================
 
-    partial void OnSearchTextChanged(string value) => ApplyFilterAndSort();
+    partial void OnSearchTextChanged(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) CancelSearch();
+        // Effacer la recherche pendant l'affichage de résultats : retour au dossier.
+        if (IsSearchResults && string.IsNullOrWhiteSpace(value))
+        {
+            _ = CloseSearchAsync();
+            return;
+        }
+        ApplyFilterAndSort();
+    }
+
+    /// <summary>Recherche par nom dans <paramref name="scope"/> et tous ses sous-dossiers (Entrée dans la recherche).</summary>
+    private async Task RunGlobalSearchAsync(string scope)
+    {
+        var q = SearchText.Trim();
+        if (q.Length < 2)
+        {
+            _notify.Info("Recherche", "Tapez au moins 2 caractères.");
+            return;
+        }
+
+        _searchCts?.Cancel();
+        var cts = _searchCts = new CancellationTokenSource();
+        IsSearching = true;
+        IsBusy = true;
+        try
+        {
+            var (results, truncated) = await _ftp.SearchAsync(q, scope, cts.Token);
+            // Annulée entre-temps (texte effacé, autre dossier, autre page) : on n'affiche rien.
+            if (cts.IsCancellationRequested) return;
+
+            _thumbCts?.Cancel();
+            _allEntries.Clear();
+            foreach (var e in results)
+            {
+                var vm = new FileEntryViewModel(e) { LocationText = FtpPathUtil.ToDisplay(FtpPathUtil.GetParent(e.FullPath)) };
+                vm.PropertyChanged += EntryPropertyChanged;
+                _allEntries.Add(vm);
+            }
+
+            var root = FtpPathUtil.Normalize(_configService.Current.FtpRootPath);
+            var where = scope == root ? "tout le drive" : $"« {FtpPathUtil.GetName(scope)} » et ses sous-dossiers";
+            SearchResultsTitle = results.Count == 0
+                ? $"Aucun résultat pour « {q} » dans {where}"
+                : $"{results.Count}{(truncated ? "+" : "")} résultat(s) pour « {q} » dans {where}"
+                  + (truncated ? " — affinez la recherche pour tout voir" : "");
+            CanWidenSearch = scope != root;
+            EmptyMessage = "Aucun résultat.";
+            IsSearchResults = true;
+            SelectedCount = 0;
+            ApplyFilterAndSort();
+            StartThumbnailLoading();
+        }
+        catch (OperationCanceledException)
+        {
+            // Recherche annulée : rien à signaler.
+        }
+        catch (Exception ex)
+        {
+            if (!cts.IsCancellationRequested) _notify.Error("Recherche impossible", ex.Message);
+        }
+        finally
+        {
+            if (ReferenceEquals(_searchCts, cts))
+            {
+                _searchCts = null;
+                IsSearching = false;
+                IsBusy = false;
+                RaiseContextChanged();
+            }
+            cts.Dispose();
+        }
+    }
+
+    private async Task CloseSearchAsync()
+    {
+        IsSearchResults = false;
+        SearchText = string.Empty;
+        await NavigateToAsync(CurrentPath);
+    }
+
+    /// <summary>Ouvre le dossier qui contient un résultat de recherche, et le sélectionne.</summary>
+    private async Task OpenLocationAsync(FileEntryViewModel? entry)
+    {
+        if (entry is null) return;
+        var name = entry.Name;
+        await NavigateToAsync(FtpPathUtil.GetParent(entry.FullPath));
+        var target = _allEntries.FirstOrDefault(e => e.Name == name);
+        if (target is not null) target.IsSelected = true;
+    }
 
     private void SetSort(string? field)
     {
@@ -614,7 +622,7 @@ public sealed partial class FilesViewModel : ObservableObject
     {
         IEnumerable<FileEntryViewModel> query = _allEntries;
 
-        if (!string.IsNullOrWhiteSpace(SearchText))
+        if (!IsSearchResults && !string.IsNullOrWhiteSpace(SearchText))
         {
             var term = SearchText.Trim();
             query = query.Where(e => e.Name.Contains(term, StringComparison.OrdinalIgnoreCase));
@@ -825,7 +833,7 @@ public sealed partial class FilesViewModel : ObservableObject
             await RegisterFolderAsync(remotePath);
             _notify.Success("Dossier créé", name);
             await NavigateToAsync(CurrentPath);
-            await LoadFolderTreeAsync();
+            await LoadAccessAsync();
         }
         catch (Exception ex)
         {
@@ -879,7 +887,7 @@ public sealed partial class FilesViewModel : ObservableObject
 
             _notify.Success("Renommé", newName);
             await NavigateToAsync(CurrentPath);
-            await LoadFolderTreeAsync();
+            await LoadAccessAsync();
         }
         catch (Exception ex)
         {
@@ -897,7 +905,9 @@ public sealed partial class FilesViewModel : ObservableObject
         if (items.Count == 0 || !CanWriteCurrent) return;
 
         var label = items.Count == 1 ? $"« {items[0].Name} »" : $"{items.Count} éléments";
-        if (!_dialogs.Confirm("Supprimer", $"Supprimer définitivement {label} ?", "Supprimer", destructive: true))
+        if (!_dialogs.Confirm("Mettre à la corbeille",
+                $"Mettre {label} à la corbeille ?\n\nVous pourrez restaurer pendant 30 jours depuis l'onglet Corbeille.",
+                "Mettre à la corbeille", destructive: true))
             return;
 
         // Un dossier supprimé est-il lié à une synchronisation ? Si oui, proposer de la retirer aussi.
@@ -960,9 +970,9 @@ public sealed partial class FilesViewModel : ObservableObject
             _notify.Info("Synchronisation retirée", $"{affectedSyncs.Count} synchronisation(s) retirée(s).");
         }
 
-        if (errors == 0) _notify.Success("Supprimé", label);
+        if (errors == 0) _notify.Success("Mis à la corbeille", label);
         await NavigateToAsync(CurrentPath);
-        await LoadFolderTreeAsync();
+        await LoadAccessAsync();
     }
 
     private async Task DownloadSelectedAsync()
@@ -1111,7 +1121,7 @@ public sealed partial class FilesViewModel : ObservableObject
                 : $"{toMove.Count} éléments → {FtpPathUtil.GetName(destDir)}");
 
         await NavigateToAsync(CurrentPath);
-        await LoadFolderTreeAsync();
+        await LoadAccessAsync();
     }
 
     // =====================================================================
@@ -1215,7 +1225,7 @@ public sealed partial class FilesViewModel : ObservableObject
             _notify.Success("Copié", toCopy.Count == 1 ? $"« {toCopy[0].Name} »" : $"{toCopy.Count} éléments");
 
         await NavigateToAsync(CurrentPath);
-        await LoadFolderTreeAsync();
+        await LoadAccessAsync();
     }
 
     // =====================================================================
@@ -1347,7 +1357,7 @@ public sealed partial class FilesViewModel : ObservableObject
                 else _notify.Warning("Envoi terminé avec erreurs", $"{done} réussi(s), {failed} échoué(s).");
             }
 
-            await LoadFolderTreeAsync();
+            await LoadAccessAsync();
         }
         finally
         {
@@ -1361,9 +1371,6 @@ public sealed partial class FilesViewModel : ObservableObject
     // =====================================================================
 
     private Task ManageAccessCurrentAsync() => OpenPermissionsForPathAsync(CurrentPath);
-
-    private Task ManageAccessForNodeAsync(FolderNode? node) =>
-        node is null ? Task.CompletedTask : OpenPermissionsForPathAsync(node.FtpPath);
 
     private Task ManageAccessForEntryAsync(FileEntryViewModel? entry) =>
         entry is null || !entry.IsDirectory ? Task.CompletedTask : OpenPermissionsForPathAsync(entry.FullPath);
@@ -1394,7 +1401,7 @@ public sealed partial class FilesViewModel : ObservableObject
         dialog.ShowDialog();
 
         // Le partage a pu changer l'accès d'utilisateurs : on rafraîchit l'arbre.
-        await LoadFolderTreeAsync();
+        await LoadAccessAsync();
     }
 
     private async Task<Folder?> EnsureManageableFolderAsync(string path)
@@ -1450,15 +1457,18 @@ public sealed partial class FilesViewModel : ObservableObject
             int? days = dialog.ExpiresAtUtc is { } e
                 ? Math.Max(1, (int)Math.Ceiling((e - DateTime.UtcNow).TotalDays))
                 : null;
-            var token = await _db.CreateShareAsync(entry.FullPath, dialog.Mode, entry.IsDirectory, days);
+            var token = await _db.CreateShareAsync(entry.FullPath, dialog.Mode, entry.IsDirectory, days,
+                dialog.Password, dialog.MaxDownloads);
 
             // Lien personnalisé par utilisateur : /u/<identifiant>/<jeton>.
             var userSegment = Uri.EscapeDataString(
                 string.IsNullOrWhiteSpace(_session.UserName) ? "user" : _session.UserName);
             var url = $"{baseUrl.TrimEnd('/')}/u/{userSegment}/{token}";
             CopyToClipboard(url);
-            _notify.Success("Lien de partage créé",
-                $"{(dialog.Mode == "download" ? "Téléchargement" : "Aperçu")} — copié dans le presse-papiers.");
+            var kind = dialog.Mode switch { "download" => "Téléchargement", "upload" => "Boîte de dépôt", _ => "Aperçu" };
+            if (dialog.Password is not null) kind += " · protégé par mot de passe";
+            if (dialog.MaxDownloads is { } m) kind += $" · {m} téléchargement(s) max";
+            _notify.Success("Lien de partage créé", $"{kind} — copié dans le presse-papiers.");
         }
         catch (Exception ex)
         {

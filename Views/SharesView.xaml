@@ -83,6 +83,9 @@
                                                        Foreground="{StaticResource KindFolderBrush}" Opacity="0.85" Margin="0,0,8,0" />
                                             <TextBlock Text="{Binding FileName}" VerticalAlignment="Center"
                                                        TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Style="{StaticResource GlyphText}" Text="&#xE72E;" FontSize="12" Opacity="0.7"
+                                                       Margin="6,0,0,0" VerticalAlignment="Center" ToolTip="Protégé par mot de passe"
+                                                       Visibility="{Binding HasPassword, Converter={StaticResource BoolToVis}}" />
                                         </StackPanel>
                                     </DataTemplate>
                                 </GridViewColumn.CellTemplate>
@@ -91,6 +94,7 @@
                             <GridViewColumn Width="130" Header="Créé le" DisplayMemberBinding="{Binding CreatedText}" />
                             <GridViewColumn Width="130" Header="Expire" DisplayMemberBinding="{Binding ExpiryText}" />
                             <GridViewColumn Width="60" Header="Vues" DisplayMemberBinding="{Binding ViewCount}" />
+                            <GridViewColumn Width="70" Header="Téléch." DisplayMemberBinding="{Binding DownloadsText}" />
                             <GridViewColumn Width="90" Header="Statut">
                                 <GridViewColumn.CellTemplate>
                                     <DataTemplate>

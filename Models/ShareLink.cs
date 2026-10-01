@@ -7,7 +7,7 @@ public sealed class ShareLink
     public string FtpPath { get; init; } = string.Empty;
     public string FileName { get; init; } = string.Empty;
 
-    /// <summary>"download" ou "preview".</summary>
+    /// <summary>"download", "preview" ou "upload" (boîte de dépôt).</summary>
     public string Mode { get; init; } = "download";
 
     /// <summary>Vrai si le partage est un dossier (page web navigable) plutôt qu'un fichier.</summary>
@@ -17,4 +17,12 @@ public sealed class ShareLink
     public DateTime? ExpiresAt { get; init; }
     public bool Revoked { get; init; }
     public int ViewCount { get; init; }
+
+    /// <summary>Partage protégé par un mot de passe.</summary>
+    public bool HasPassword { get; init; }
+
+    /// <summary>Nombre max de téléchargements (null = illimité).</summary>
+    public int? MaxDownloads { get; init; }
+
+    public int DownloadCount { get; init; }
 }

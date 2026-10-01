@@ -27,7 +27,16 @@ public sealed record ApiFolder(int Id, string Name, string FtpPath, int? ParentI
 public sealed record ApiPermission(int UserId, string Username, string Permission);
 public sealed record ApiPermissions(bool Registered, int? FolderId, List<ApiPermission> Permissions);
 public sealed record ApiShare(string Token, string FtpPath, string FileName, string Mode, bool IsDir,
-    DateTime CreatedAt, DateTime? ExpiresAt, bool Revoked, int ViewCount);
+    DateTime CreatedAt, DateTime? ExpiresAt, bool Revoked, int ViewCount,
+    bool HasPassword = false, int? MaxDownloads = null, int DownloadCount = 0);
+public sealed record ApiTrashItem(int Id, string Name, string OriginalPath, bool IsDir, long Size,
+    DateTime DeletedAt, DateTime ExpiresAt, string? DeletedBy);
+public sealed record ApiTrashList(int RetentionDays, List<ApiTrashItem> Items);
+public sealed record ApiSearchHit(string Name, string Path, bool IsDir, long Size, string? Modified);
+public sealed record ApiSearchResult(string Path, bool Truncated, List<ApiSearchHit> Results);
+public sealed record ApiVolume(string Name, string Path, long Total, long Free);
+public sealed record ApiStorage(List<ApiVolume> Volumes);
+public sealed record ApiRoute(string? Direct);
 public sealed record ApiShareCreated(string Token, string Path);
 public sealed record ApiUpdateInfo(string Version, string? Notes, string? Sha256);
 public sealed record ApiIdResult(int Id);
@@ -69,7 +78,72 @@ public sealed class ApiClient
 
     public bool HasToken => !string.IsNullOrEmpty(Token);
 
-    private string Url(string path) => $"{_baseUrl().TrimEnd('/')}{path}";
+    // ---------- Itinéraire : accès DIRECT (Tailscale) ou public (Funnel) ----------
+    // Quand cette machine est sur le tailnet, le serveur répond aussi en direct (port dédié,
+    // chiffré par Tailscale) : bien plus rapide que Funnel. Sinon on reste sur l'URL publique.
+    private readonly HttpClient _probe = new(new SocketsHttpHandler { ConnectTimeout = TimeSpan.FromSeconds(2) })
+        { Timeout = TimeSpan.FromSeconds(3) };
+    private string? _directUrl;      // adresse directe annoncée par le serveur (mise en cache)
+    private string? _directFor;      // URL publique pour laquelle _directUrl a été obtenue
+    private volatile bool _useDirect;
+
+    /// <summary>Autoriser l'accès direct quand il est disponible (réglage utilisateur).</summary>
+    public bool PreferDirect { get; set; } = true;
+
+    /// <summary>Vrai si les requêtes passent actuellement par l'accès direct.</summary>
+    public bool IsDirect => _useDirect;
+
+    /// <summary>Levé quand l'itinéraire change (direct ↔ Internet).</summary>
+    public event Action? RouteChanged;
+
+    private string PublicBase => _baseUrl().TrimEnd('/');
+    private string ActiveBase => _useDirect && _directUrl is not null ? _directUrl : PublicBase;
+
+    private string Url(string path) => $"{ActiveBase}{path}";
+
+    private void SetDirect(bool value)
+    {
+        if (_useDirect == value) return;
+        _useDirect = value;
+        RouteChanged?.Invoke();
+    }
+
+    /// <summary>Une requête a échoué côté réseau : si on était en direct, on repasse par Internet.</summary>
+    public void ReportNetworkFailure() => SetDirect(false);
+
+    /// <summary>(Re)détermine l'itinéraire : récupère l'adresse directe puis vérifie qu'elle répond.</summary>
+    public async Task RefreshRouteAsync(CancellationToken ct = default)
+    {
+        if (!PreferDirect || !HasToken || string.IsNullOrWhiteSpace(PublicBase))
+        {
+            SetDirect(false);
+            return;
+        }
+        try
+        {
+            if (_directUrl is null || _directFor != PublicBase)
+            {
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                cts.CancelAfter(TimeSpan.FromSeconds(10));
+                using var req = new HttpRequestMessage(HttpMethod.Get, $"{PublicBase}/api/route");
+                req.Headers.Add("Authorization", $"Bearer {Token}");
+                using var res = await _http.SendAsync(req, cts.Token);
+                if (!res.IsSuccessStatusCode) { SetDirect(false); return; }
+                var route = await res.Content.ReadFromJsonAsync<ApiRoute>(Json, cts.Token);
+                _directUrl = string.IsNullOrWhiteSpace(route?.Direct) ? null : route!.Direct!.TrimEnd('/');
+                _directFor = PublicBase;
+            }
+            if (_directUrl is null) { SetDirect(false); return; }
+
+            using var ping = await _probe.GetAsync($"{_directUrl}/api/ping", ct);
+            SetDirect(ping.IsSuccessStatusCode);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch
+        {
+            SetDirect(false);
+        }
+    }
 
     private HttpRequestMessage Request(HttpMethod method, string path)
     {
@@ -109,10 +183,11 @@ public sealed class ApiClient
             }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {
+                ReportNetworkFailure();
                 if (attempt >= GetMaxAttempts)
                     throw new ApiException("Le serveur ne répond pas (délai dépassé). Réessayez.", HttpStatusCode.RequestTimeout);
             }
-            catch (HttpRequestException) when (attempt < GetMaxAttempts) { }
+            catch (HttpRequestException) when (attempt < GetMaxAttempts) { ReportNetworkFailure(); }
             await Task.Delay(TimeSpan.FromMilliseconds(400 * attempt), ct);
         }
     }
@@ -130,8 +205,10 @@ public sealed class ApiClient
     {
         using var req = Request(method, path);
         if (body is not null) req.Content = JsonContent.Create(body, options: Json);
-        using var res = await _http.SendAsync(req, ct);
-        await EnsureOkAsync(res);
+        HttpResponseMessage res;
+        try { res = await _http.SendAsync(req, ct); }
+        catch (HttpRequestException) { ReportNetworkFailure(); throw; }
+        using (res) await EnsureOkAsync(res);
     }
 
     private static string Enc(string s) => Uri.EscapeDataString(s);
@@ -151,7 +228,12 @@ public sealed class ApiClient
     public Task<ApiUser> MeAsync(CancellationToken ct = default) =>
         SendJsonAsync<ApiUser>(HttpMethod.Get, "/api/me", ct: ct);
 
-    public void SignOut() => Token = null;
+    public void SignOut()
+    {
+        Token = null;
+        _directUrl = null;
+        SetDirect(false);
+    }
 
     // ---------- Navigation / fichiers ----------
     public Task<ApiListing> ListAsync(string path, CancellationToken ct = default) =>
@@ -248,6 +330,7 @@ public sealed class ApiClient
             catch when (attempt < MaxChunkRetries)
             {
                 attempt++;
+                ReportNetworkFailure();
                 await Task.Delay(TimeSpan.FromSeconds(Math.Min(2 * attempt, 8)), ct);
                 // Resynchronise l'offset : le serveur a pu écrire une partie de la tranche.
                 try { uploaded = Math.Min(await ProbeUploadAsync(dirPath, uploadId, ct), total); }
@@ -366,14 +449,36 @@ public sealed class ApiClient
         SendAsync(HttpMethod.Post, "/api/permissions/remove", new { path, userId }, ct);
 
     // ---------- Partages ----------
-    public Task<ApiShareCreated> CreateShareAsync(string path, string mode, bool isDir, int? expiresInDays, CancellationToken ct = default) =>
-        SendJsonAsync<ApiShareCreated>(HttpMethod.Post, "/api/shares", new { path, mode, isDir, expiresInDays }, ct);
+    public Task<ApiShareCreated> CreateShareAsync(string path, string mode, bool isDir, int? expiresInDays,
+        string? password = null, int? maxDownloads = null, CancellationToken ct = default) =>
+        SendJsonAsync<ApiShareCreated>(HttpMethod.Post, "/api/shares",
+            new { path, mode, isDir, expiresInDays, password, maxDownloads }, ct);
 
     public Task<List<ApiShare>> GetSharesAsync(CancellationToken ct = default) =>
         SendJsonAsync<List<ApiShare>>(HttpMethod.Get, "/api/shares", ct: ct);
 
     public Task RevokeShareAsync(string token, CancellationToken ct = default) =>
         SendAsync(HttpMethod.Post, "/api/shares/revoke", new { token }, ct);
+
+    // ---------- Corbeille ----------
+    public Task<ApiTrashList> GetTrashAsync(CancellationToken ct = default) =>
+        SendJsonAsync<ApiTrashList>(HttpMethod.Get, "/api/trash", ct: ct);
+
+    public Task RestoreTrashAsync(int id, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Post, "/api/trash/restore", new { id }, ct);
+
+    public Task DeleteTrashAsync(int id, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Post, "/api/trash/delete", new { id }, ct);
+
+    public Task EmptyTrashAsync(CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Post, "/api/trash/empty", ct: ct);
+
+    // ---------- Recherche / espace disque ----------
+    public Task<ApiSearchResult> SearchAsync(string query, string path, CancellationToken ct = default) =>
+        SendJsonAsync<ApiSearchResult>(HttpMethod.Get, $"/api/search?q={Enc(query)}&path={Enc(path)}", ct: ct);
+
+    public Task<ApiStorage> GetStorageAsync(CancellationToken ct = default) =>
+        SendJsonAsync<ApiStorage>(HttpMethod.Get, "/api/storage", ct: ct);
 
     // ---------- utilitaires de streaming ----------
     private static async Task CopyWithProgressAsync(Stream src, Stream dst, long total, IProgress<double>? progress, CancellationToken ct)

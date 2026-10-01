@@ -69,6 +69,18 @@
                     </StackPanel>
                 </Border>
 
+                <!-- Accès direct (tous les utilisateurs) -->
+                <Border CornerRadius="10" Padding="18" Margin="0,0,0,14"
+                        Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                    <StackPanel>
+                        <TextBlock Text="Accès direct" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,6" />
+                        <TextBlock TextWrapping="Wrap" Opacity="0.7" FontSize="12" Margin="0,0,0,10"
+                                   Text="Si ce PC est connecté au même réseau Tailscale que le serveur, l'application lui parle directement (chiffré, bien plus rapide pour les gros fichiers) au lieu de passer par Internet. Elle bascule automatiquement sur Internet si l'accès direct ne répond pas. L'état actuel est affiché en bas de la barre latérale." />
+                        <CheckBox Content="Utiliser l'accès direct quand il est disponible"
+                                  IsChecked="{Binding PreferDirect, Mode=TwoWay}" />
+                    </StackPanel>
+                </Border>
+
                 <!-- Mises à jour (tous les utilisateurs) -->
                 <Border CornerRadius="10" Padding="18" Margin="0,0,0,14"
                         Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">

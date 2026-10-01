@@ -40,6 +40,22 @@ public sealed class FtpService
         return result;
     }
 
+    /// <summary>Recherche par nom dans <paramref name="path"/> et tous ses sous-dossiers (côté serveur).</summary>
+    public async Task<(IReadOnlyList<RemoteEntry> Entries, bool Truncated)> SearchAsync(
+        string query, string path, CancellationToken ct = default)
+    {
+        var r = await _api.SearchAsync(query, FtpPathUtil.Normalize(path), ct);
+        var list = r.Results.Select(h => new RemoteEntry
+        {
+            Name = h.Name,
+            FullPath = FtpPathUtil.Normalize(h.Path),
+            IsDirectory = h.IsDir,
+            Size = h.Size,
+            Modified = ParseModified(h.Modified)
+        }).ToList();
+        return (list, r.Truncated);
+    }
+
     public async Task<bool> DirectoryExistsAsync(string path, CancellationToken ct = default)
     {
         try

@@ -1,0 +1,153 @@
+// ---- Propriétés ----
+    public ObservableCollection<FolderNode> FolderTree { get; } = new();
+    [ObservableProperty] private FolderNode? _selectedFolderNode;
+
+// ---- Commande (menu contextuel d'un nœud) ----
+    public AsyncRelayCommand<FolderNode?> ManageAccessForNodeCommand { get; }
+
+    private Task ManageAccessForNodeAsync(FolderNode? node) =>
+        node is null ? Task.CompletedTask : OpenPermissionsForPathAsync(node.FtpPath);
+
+
+// ---- Sélection d'un nœud -> navigation ----
+    partial void OnSelectedFolderNodeChanged(FolderNode? value)
+    {
+        if (value is null || value.IsPlaceholder || string.IsNullOrEmpty(value.FtpPath)) return;
+        _ = NavigateToAsync(value.FtpPath);
+    }
+
+
+// ---- Ancien chargement (arbre + _accessible) ----
+    public async Task LoadFolderTreeAsync()
+    {
+        try
+        {
+            FolderTree.Clear();
+
+            var rootPath = FtpPathUtil.Normalize(_configService.Current.FtpRootPath);
+            var rootListing = await TryListDirectoriesAsync(rootPath);
+
+            // Dossiers réellement présents à la racine du FTP courant (multi-connexions :
+            // les dossiers enregistrés en base peuvent appartenir à un autre serveur).
+            var existingRoots = rootListing?.Select(e => e.FullPath).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            bool ExistsOnCurrentFtp(string ftpPath)
+            {
+                if (existingRoots is null) return true; // FTP injoignable : on n'élague pas
+                var top = TopSegmentUnder(rootPath, FtpPathUtil.Normalize(ftpPath));
+                return top is not null && existingRoots.Contains(top);
+            }
+
+            if (_session.IsAdmin)
+            {
+                // _accessible reste alimenté depuis la base (sert aux contrôles d'accès),
+                // mais l'ARBRE affiche la vraie structure du disque, chargée paresseusement.
+                var all = (await _db.GetAllFoldersAsync()).Where(f => ExistsOnCurrentFtp(f.FtpPath)).ToList();
+                _accessible = all.Select(f => (f, FolderAccessLevel.Owner)).ToList();
+
+                var rootNode = new FolderNode(new Folder { Id = 0, Name = "Tout le drive", FtpPath = rootPath }, FolderAccessLevel.Owner);
+                if (rootListing is not null)
+                    foreach (var dir in rootListing.OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase))
+                        rootNode.Children.Add(CreateFtpNode(dir.Name, dir.FullPath));
+                FolderTree.Add(rootNode);
+            }
+            else
+            {
+                _accessible = (await _db.GetAccessibleFoldersAsync(_session.UserId))
+                    .Where(a => ExistsOnCurrentFtp(a.Folder.FtpPath)).ToList();
+                var accessibleIds = _accessible.Select(a => a.Folder.Id).ToHashSet();
+                var folders = _accessible.Select(a => a.Folder).ToList();
+
+                // Racines = dossiers accessibles dont le parent n'est pas lui-même accessible.
+                foreach (var (folder, access) in _accessible
+                             .Where(a => a.Folder.ParentId is not int pid || !accessibleIds.Contains(pid))
+                             .OrderBy(a => a.Folder.Name))
+                {
+                    var node = new FolderNode(folder, access);
+                    BuildChildren(node, folders, folder.Id);
+                    FolderTree.Add(node);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _notify.Error("Chargement des dossiers impossible", ex.Message);
+        }
+    }
+
+    /// <summary>Sous-dossiers d'un chemin FTP, ou null si le listing échoue.</summary>
+    private async Task<IReadOnlyList<RemoteEntry>?> TryListDirectoriesAsync(string path)
+    {
+        try
+        {
+            var listing = await _ftp.ListAsync(path);
+            return listing.Where(e => e.IsDirectory).ToList();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Crée un nœud d'arbre reflétant un vrai dossier du FTP, dont les enfants sont
+    /// chargés à la demande au premier dépliage.
+    /// </summary>
+    private FolderNode CreateFtpNode(string name, string path)
+    {
+        var node = new FolderNode(new Folder { Id = 0, Name = name, FtpPath = path }, FolderAccessLevel.Owner)
+        {
+            ChildrenLoaded = false,
+            IsExpanded = false
+        };
+        node.Children.Add(FolderNode.CreatePlaceholder());
+        node.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(FolderNode.IsExpanded) && node.IsExpanded && !node.ChildrenLoaded)
+                _ = LoadFtpChildrenAsync(node);
+        };
+        return node;
+    }
+
+    private async Task LoadFtpChildrenAsync(FolderNode node)
+    {
+        node.ChildrenLoaded = true;
+        var listing = await TryListDirectoriesAsync(node.FtpPath);
+        if (listing is null)
+        {
+            // Échec : on referme et on laisse la possibilité de réessayer au prochain dépliage.
+            node.ChildrenLoaded = false;
+            node.IsExpanded = false;
+            return;
+        }
+
+        node.Children.Clear();
+        foreach (var dir in listing.OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase))
+            node.Children.Add(CreateFtpNode(dir.Name, dir.FullPath));
+    }
+
+    /// <summary>
+    /// Premier segment de <paramref name="path"/> sous <paramref name="rootPath"/>
+    /// (ex. racine "/" et chemin "/Disque/User/Doc" -> "/Disque"), ou null si hors racine.
+    /// </summary>
+    private static string? TopSegmentUnder(string rootPath, string path)
+    {
+        var root = rootPath == "/" ? string.Empty : rootPath;
+        if (string.Equals(path, rootPath, StringComparison.OrdinalIgnoreCase)) return null;
+        if (!path.StartsWith(root + "/", StringComparison.OrdinalIgnoreCase)) return null;
+        var segment = path[(root.Length + 1)..].Split('/')[0];
+        return root + "/" + segment;
+    }
+
+    private void BuildChildren(FolderNode parent, List<Folder> all, int? parentId)
+    {
+        foreach (var child in all.Where(f => f.ParentId == parentId).OrderBy(f => f.Name))
+        {
+            var access = _accessible.FirstOrDefault(a => a.Folder.Id == child.Id).Access;
+            if (access == FolderAccessLevel.None) access = FolderAccessLevel.Owner; // admin
+            var node = new FolderNode(child, access);
+            BuildChildren(node, all, child.Id);
+            parent.Children.Add(node);
+        }
+    }
+

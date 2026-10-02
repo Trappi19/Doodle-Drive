@@ -41,7 +41,7 @@ public sealed record ApiShareCreated(string Token, string Path);
 public sealed record ApiUpdateInfo(string Version, string? Notes, string? Sha256);
 public sealed record ApiIdResult(int Id);
 public sealed record ApiSyncFolder(int Id, string MachineId, string MachineName, string LocalPath,
-    string RemotePath, bool AutoSync, DateTime CreatedAt, DateTime? LastSyncAt);
+    string RemotePath, bool AutoSync, DateTime CreatedAt, DateTime? LastSyncAt, string? Name = null);
 
 /// <summary>
 /// Client HTTP unique de l'API Doodle Drive. Remplace les accès directs MariaDB/FTP :
@@ -370,9 +370,13 @@ public sealed class ApiClient
         SendJsonAsync<List<ApiSyncFolder>>(HttpMethod.Get, "/api/sync/folders", ct: ct);
 
     public async Task<int> CreateSyncFolderAsync(string machineId, string machineName, string localPath,
-        string remotePath, bool autoSync, CancellationToken ct = default) =>
+        string remotePath, bool autoSync, string? name = null, CancellationToken ct = default) =>
         (await SendJsonAsync<ApiIdResult>(HttpMethod.Post, "/api/sync/folders",
-            new { machineId, machineName, localPath, remotePath, autoSync }, ct)).Id;
+            new { machineId, machineName, localPath, remotePath, autoSync, name }, ct)).Id;
+
+    /// <summary>Nom d'affichage d'une synchronisation (null/vide = nom du dossier).</summary>
+    public Task RenameSyncFolderAsync(int id, string? name, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Post, "/api/sync/folders/rename", new { id, name }, ct);
 
     public Task SetSyncAutoAsync(int id, bool autoSync, CancellationToken ct = default) =>
         SendAsync(HttpMethod.Post, "/api/sync/folders/auto", new { id, autoSync }, ct);

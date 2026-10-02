@@ -22,6 +22,7 @@ public sealed partial class SyncFolderRowViewModel : ObservableObject
         IsThisMachine = isThisMachine;
         _autoSync = f.AutoSync;      // assignation directe : ne déclenche pas la persistance
         _lastSyncAt = f.LastSyncAt;
+        _name = string.IsNullOrWhiteSpace(f.Name) ? null : f.Name;
         _persistAuto = persistAuto;
     }
 
@@ -39,6 +40,16 @@ public sealed partial class SyncFolderRowViewModel : ObservableObject
 
     /// <summary>(Autres machines) Ce dossier en ligne est déjà synchronisé sur CETTE machine.</summary>
     [ObservableProperty] private bool _isAlreadyHere;
+
+    /// <summary>Nom personnalisé (null = on affiche le nom du dossier en ligne).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(Title))]
+    [NotifyPropertyChangedFor(nameof(HasCustomName))]
+    private string? _name;
+
+    /// <summary>Titre de la carte : nom personnalisé, sinon nom du dossier en ligne.</summary>
+    public string Title => Name ?? FtpPathUtil.GetName(RemotePath);
+    public bool HasCustomName => Name is not null;
 
     [ObservableProperty] private bool _autoSync;
     [ObservableProperty] private bool _isBusy;
@@ -89,6 +100,7 @@ public sealed partial class SyncViewModel : ObservableObject
         CheckRowCommand = new AsyncRelayCommand<SyncFolderRowViewModel?>(CheckRowAsync);
         RemoveRowCommand = new AsyncRelayCommand<SyncFolderRowViewModel?>(RemoveRowAsync);
         CloneHereCommand = new AsyncRelayCommand<SyncFolderRowViewModel?>(CloneHereAsync);
+        RenameRowCommand = new AsyncRelayCommand<SyncFolderRowViewModel?>(RenameRowAsync);
     }
 
     public ObservableCollection<SyncFolderRowViewModel> ThisMachine { get; } = new();
@@ -130,6 +142,7 @@ public sealed partial class SyncViewModel : ObservableObject
     public AsyncRelayCommand<SyncFolderRowViewModel?> CheckRowCommand { get; }
     public AsyncRelayCommand<SyncFolderRowViewModel?> RemoveRowCommand { get; }
     public AsyncRelayCommand<SyncFolderRowViewModel?> CloneHereCommand { get; }
+    public AsyncRelayCommand<SyncFolderRowViewModel?> RenameRowCommand { get; }
 
     partial void OnIsBusyChanged(bool value)
     {
@@ -234,8 +247,8 @@ public sealed partial class SyncViewModel : ObservableObject
 
         try
         {
-            await _api.CreateSyncFolderAsync(_config.Current.MachineId, MachineName, local, remote, false);
-            _notify.Success("Synchronisation ajoutée ici", $"{leaf} ↔ {remote}");
+            await _api.CreateSyncFolderAsync(_config.Current.MachineId, MachineName, local, remote, false, row.Name);
+            _notify.Success("Synchronisation ajoutée ici", $"{row.Title} ↔ {remote}");
             await LoadAsync();
 
             // Lance la première synchro sur la nouvelle paire (récupère les fichiers en ligne).
@@ -245,6 +258,29 @@ public sealed partial class SyncViewModel : ObservableObject
         catch (Exception ex)
         {
             _notify.Error("Ajout impossible", ex.Message);
+        }
+    }
+
+    /// <summary>Donne un nom personnalisé à une synchronisation (vide = revenir au nom du dossier).</summary>
+    private async Task RenameRowAsync(SyncFolderRowViewModel? row)
+    {
+        if (row is null) return;
+        var input = _dialogs.Prompt("Renommer la synchronisation",
+            $"Nom affiché pour « {row.LocalPath} ».\nLaissez vide pour revenir au nom du dossier ({FtpPathUtil.GetName(row.RemotePath)}).",
+            row.Name ?? string.Empty, "Renommer");
+        if (input is null) return; // annulé
+
+        var name = input.Trim();
+        if (name.Length > 100) name = name[..100];
+        try
+        {
+            await _api.RenameSyncFolderAsync(row.Id, name.Length == 0 ? null : name);
+            row.Name = name.Length == 0 ? null : name;
+            _notify.Success("Synchronisation renommée", row.Title);
+        }
+        catch (Exception ex)
+        {
+            _notify.Error("Renommage impossible", ex.Message);
         }
     }
 

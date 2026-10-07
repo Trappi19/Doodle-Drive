@@ -35,6 +35,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         SaveCommand = new RelayCommand(Save);
         ResetConnectionCommand = new RelayCommand(ResetConnection);
         CheckUpdatesCommand = new RelayCommand(() => CheckUpdatesRequested?.Invoke());
+        CopyWebDavCommand = new RelayCommand(CopyWebDav);
+        MapDriveCommand = new RelayCommand(MapDrive);
     }
 
     /// <summary>Demande la déconnexion (après réinitialisation de la connexion serveur).</summary>
@@ -49,6 +51,47 @@ public sealed partial class SettingsViewModel : ObservableObject
     public RelayCommand SaveCommand { get; }
     public RelayCommand ResetConnectionCommand { get; }
     public RelayCommand CheckUpdatesCommand { get; }
+    public RelayCommand CopyWebDavCommand { get; }
+    public RelayCommand MapDriveCommand { get; }
+
+    /// <summary>
+    /// Adresse WebDAV à utiliser comme lecteur réseau. Admin : directement le dossier racine affiché
+    /// (préfixe technique sauté) ; utilisateur : racine du drive (il y retrouve ses dossiers).
+    /// </summary>
+    public string WebDavUrl
+    {
+        get
+        {
+            var baseUrl = (_configService.Current.ShareBaseUrl ?? string.Empty).Trim().TrimEnd('/');
+            if (baseUrl.Length == 0) return string.Empty;
+            var root = _session.IsAdmin && !string.IsNullOrEmpty(FtpPathUtil.DisplayRoot) ? FtpPathUtil.DisplayRoot : "/";
+            var encoded = string.Join('/', root.Split('/', StringSplitOptions.RemoveEmptyEntries).Select(Uri.EscapeDataString));
+            return $"{baseUrl}/dav/{encoded}{(encoded.Length > 0 ? "/" : "")}";
+        }
+    }
+
+    private void CopyWebDav()
+    {
+        if (string.IsNullOrEmpty(WebDavUrl)) return;
+        try
+        {
+            System.Windows.Clipboard.SetText(WebDavUrl);
+            _notify.Success("Adresse copiée", WebDavUrl);
+        }
+        catch (Exception ex) { _notify.Error("Copie impossible", ex.Message); }
+    }
+
+    /// <summary>Copie l'adresse puis ouvre l'assistant Windows « Connecter un lecteur réseau ».</summary>
+    private void MapDrive()
+    {
+        CopyWebDav();
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
+                "rundll32.exe", "shell32.dll,SHHelpShortcuts_RunDLL Connect") { UseShellExecute = true });
+        }
+        catch (Exception ex) { _notify.Error("Ouverture impossible", ex.Message); }
+    }
 
     /// <summary>Version installée (affichée dans la section Mises à jour).</summary>
     public string AppVersion => UpdateService.CurrentVersionText;
